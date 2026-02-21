@@ -122,7 +122,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listViruses(q: q, depleted: dep),
                 nameOf: (v) => v.virusName,
-                subtitleOf: (v) => '${v.backbone} | ${v.insertGene}',
+                subtitleOf: (v) => '${v.virusType} | Owner: ${v.owner}',
                 onAdd: () => _addVirus(),
                 onTap: (v) => _editVirus(v),
                 onDelete: (v) => api.deleteVirus(v.id),
@@ -134,7 +134,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listDNA(q: q, depleted: dep),
                 nameOf: (d) => d.dnaName,
-                subtitleOf: (d) => '${d.backbone} | ${d.insertGene}',
+                subtitleOf: (d) => '${d.dnaType} | Owner: ${d.owner}',
                 onAdd: () => _addDNA(),
                 onTap: (d) => _editDNA(d),
                 onDelete: (d) => api.deleteDNA(d.id),
@@ -147,7 +147,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listOligos(q: q, depleted: dep),
                 nameOf: (o) => o.oligoName,
                 subtitleOf: (o) =>
-                    'Len: ${o.length} | ${o.purification}',
+                    '${o.oligoType} | ${o.sequence}',
                 onAdd: () => _addOligo(),
                 onTap: (o) => _editOligo(o),
                 onDelete: (o) => api.deleteOligo(o.id),
@@ -160,7 +160,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listChemicals(q: q, depleted: dep),
                 nameOf: (c) => c.chemicalName,
                 subtitleOf: (c) =>
-                    '${c.company} | ${c.catalogNo} | ${c.formula}',
+                    '${c.company} | ${c.catalogNo} | ${c.chemType}',
                 onAdd: () => _addChemical(),
                 onTap: (c) => _editChemical(c),
                 onDelete: (c) => api.deleteChemical(c.id),
@@ -171,9 +171,9 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 q: _searchCtl.text,
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listMolecular(q: q, depleted: dep),
-                nameOf: (m) => m.reagentName,
+                nameOf: (m) => m.mrName,
                 subtitleOf: (m) =>
-                    '${m.company} | ${m.catalogNo} | ${m.reagentType}',
+                    '${m.mrType} | Owner: ${m.owner}',
                 onAdd: () => _addMolecular(),
                 onTap: (m) => _editMolecular(m),
                 onDelete: (m) => api.deleteMolecular(m.id),
@@ -224,7 +224,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
   Future<void> _addCellLine() async {
     final fields = await _showFormDialog('New Cell Line', [
       'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
-      'obtainFrom', 'investigator', 'notes', 'location', 'quantity',
+      'obtainFrom', 'cellType', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createCellLine(fields);
@@ -234,7 +234,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
   Future<void> _editCellLine(ReagentCellLine c) async {
     final fields = await _showFormDialog('Edit Cell Line', [
       'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
-      'obtainFrom', 'investigator', 'notes', 'location', 'quantity',
+      'obtainFrom', 'cellType', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'cellLineName': c.cellLineName,
       'selection': c.selection,
@@ -242,10 +242,11 @@ class _ReagentsScreenState extends State<ReagentsScreen>
       'parentalCell': c.parentalCell,
       'medium': c.medium,
       'obtainFrom': c.obtainFrom,
-      'investigator': c.investigator,
+      'cellType': c.cellType,
       'notes': c.notes,
       'location': c.location,
-      'quantity': c.quantity,
+      'owner': c.owner,
+      'label': c.label,
     });
     if (fields == null) return;
     await api.updateCellLine(c.id, fields);
@@ -254,8 +255,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addVirus() async {
     final fields = await _showFormDialog('New Virus', [
-      'virusName', 'backbone', 'insertGene', 'envelopeGene',
-      'investigator', 'notes', 'location', 'quantity',
+      'virusName', 'virusType', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createVirus(fields);
@@ -264,17 +264,14 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editVirus(ReagentVirus v) async {
     final fields = await _showFormDialog('Edit Virus', [
-      'virusName', 'backbone', 'insertGene', 'envelopeGene',
-      'investigator', 'notes', 'location', 'quantity',
+      'virusName', 'virusType', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'virusName': v.virusName,
-      'backbone': v.backbone,
-      'insertGene': v.insertGene,
-      'envelopeGene': v.envelopeGene,
-      'investigator': v.investigator,
+      'virusType': v.virusType,
       'notes': v.notes,
       'location': v.location,
-      'quantity': v.quantity,
+      'owner': v.owner,
+      'label': v.label,
     });
     if (fields == null) return;
     await api.updateVirus(v.id, fields);
@@ -283,8 +280,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addDNA() async {
     final fields = await _showFormDialog('New DNA', [
-      'dnaName', 'backbone', 'insertGene', 'selection',
-      'investigator', 'notes', 'location', 'quantity',
+      'dnaName', 'dnaType', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createDNA(fields);
@@ -293,17 +289,14 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editDNA(ReagentDNA d) async {
     final fields = await _showFormDialog('Edit DNA', [
-      'dnaName', 'backbone', 'insertGene', 'selection',
-      'investigator', 'notes', 'location', 'quantity',
+      'dnaName', 'dnaType', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'dnaName': d.dnaName,
-      'backbone': d.backbone,
-      'insertGene': d.insertGene,
-      'selection': d.selection,
-      'investigator': d.investigator,
+      'dnaType': d.dnaType,
       'notes': d.notes,
       'location': d.location,
-      'quantity': d.quantity,
+      'owner': d.owner,
+      'label': d.label,
     });
     if (fields == null) return;
     await api.updateDNA(d.id, fields);
@@ -312,45 +305,34 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addOligo() async {
     final fields = await _showFormDialog('New Oligo', [
-      'oligoName', 'sequence', 'length', 'purification',
-      'investigator', 'notes', 'location', 'quantity',
+      'oligoName', 'sequence', 'oligoType', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
-    // length needs to be int
-    if (fields.containsKey('length')) {
-      fields['length'] = int.tryParse(fields['length'].toString()) ?? 0;
-    }
     await api.createOligo(fields);
     setState(() {});
   }
 
   Future<void> _editOligo(ReagentOligo o) async {
     final fields = await _showFormDialog('Edit Oligo', [
-      'oligoName', 'sequence', 'length', 'purification',
-      'investigator', 'notes', 'location', 'quantity',
+      'oligoName', 'sequence', 'oligoType', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'oligoName': o.oligoName,
       'sequence': o.sequence,
-      'length': o.length.toString(),
-      'purification': o.purification,
-      'investigator': o.investigator,
+      'oligoType': o.oligoType,
       'notes': o.notes,
       'location': o.location,
-      'quantity': o.quantity,
+      'owner': o.owner,
+      'label': o.label,
     });
     if (fields == null) return;
-    if (fields.containsKey('length')) {
-      fields['length'] = int.tryParse(fields['length'].toString()) ?? 0;
-    }
     await api.updateOligo(o.id, fields);
     setState(() {});
   }
 
   Future<void> _addChemical() async {
     final fields = await _showFormDialog('New Chemical', [
-      'chemicalName', 'casNumber', 'formula', 'mw', 'company',
-      'catalogNo', 'concentration', 'investigator', 'notes',
-      'location', 'quantity',
+      'chemicalName', 'catalogNo', 'company', 'chemType',
+      'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createChemical(fields);
@@ -359,21 +341,17 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editChemical(ReagentChemical c) async {
     final fields = await _showFormDialog('Edit Chemical', [
-      'chemicalName', 'casNumber', 'formula', 'mw', 'company',
-      'catalogNo', 'concentration', 'investigator', 'notes',
-      'location', 'quantity',
+      'chemicalName', 'catalogNo', 'company', 'chemType',
+      'notes', 'location', 'owner', 'label',
     ], initial: {
       'chemicalName': c.chemicalName,
-      'casNumber': c.casNumber,
-      'formula': c.formula,
-      'mw': c.mw,
-      'company': c.company,
       'catalogNo': c.catalogNo,
-      'concentration': c.concentration,
-      'investigator': c.investigator,
+      'company': c.company,
+      'chemType': c.chemType,
       'notes': c.notes,
       'location': c.location,
-      'quantity': c.quantity,
+      'owner': c.owner,
+      'label': c.label,
     });
     if (fields == null) return;
     await api.updateChemical(c.id, fields);
@@ -382,8 +360,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addMolecular() async {
     final fields = await _showFormDialog('New Molecular Reagent', [
-      'reagentName', 'catalogNo', 'company', 'lotNo', 'reagentType',
-      'investigator', 'notes', 'location', 'quantity',
+      'mrName', 'mrType', 'notes', 'location', 'position', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createMolecular(fields);
@@ -392,18 +369,15 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editMolecular(ReagentMolecular m) async {
     final fields = await _showFormDialog('Edit Molecular Reagent', [
-      'reagentName', 'catalogNo', 'company', 'lotNo', 'reagentType',
-      'investigator', 'notes', 'location', 'quantity',
+      'mrName', 'mrType', 'notes', 'location', 'position', 'owner', 'label',
     ], initial: {
-      'reagentName': m.reagentName,
-      'catalogNo': m.catalogNo,
-      'company': m.company,
-      'lotNo': m.lotNo,
-      'reagentType': m.reagentType,
-      'investigator': m.investigator,
+      'mrName': m.mrName,
+      'mrType': m.mrType,
       'notes': m.notes,
       'location': m.location,
-      'quantity': m.quantity,
+      'position': m.position,
+      'owner': m.owner,
+      'label': m.label,
     });
     if (fields == null) return;
     await api.updateMolecular(m.id, fields);

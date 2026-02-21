@@ -741,11 +741,12 @@ class ReagentCellLine {
     required this.parentalCell,
     required this.medium,
     required this.obtainFrom,
-    required this.investigator,
-    required this.notes,
+    required this.cellType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
@@ -758,11 +759,12 @@ class ReagentCellLine {
   final String parentalCell;
   final String medium;
   final String obtainFrom;
-  final String investigator;
-  final String notes;
+  final String cellType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -776,11 +778,12 @@ class ReagentCellLine {
       parentalCell: json['parentalCell'] as String? ?? '',
       medium: json['medium'] as String? ?? '',
       obtainFrom: json['obtainFrom'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      cellType: json['cellType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -794,11 +797,12 @@ class ReagentCellLine {
     'parentalCell': parentalCell,
     'medium': medium,
     'obtainFrom': obtainFrom,
-    'investigator': investigator,
-    'notes': notes,
+    'cellType': cellType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
@@ -807,14 +811,12 @@ class ReagentVirus {
   ReagentVirus({
     required this.id,
     required this.virusName,
-    required this.backbone,
-    required this.insertGene,
-    required this.envelopeGene,
-    required this.investigator,
-    required this.notes,
+    required this.virusType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
@@ -822,14 +824,12 @@ class ReagentVirus {
 
   final int id;
   final String virusName;
-  final String backbone;
-  final String insertGene;
-  final String envelopeGene;
-  final String investigator;
-  final String notes;
+  final String virusType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -838,14 +838,12 @@ class ReagentVirus {
     return ReagentVirus(
       id: (json['id'] as num).toInt(),
       virusName: json['virusName'] as String? ?? '',
-      backbone: json['backbone'] as String? ?? '',
-      insertGene: json['insertGene'] as String? ?? '',
-      envelopeGene: json['envelopeGene'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      virusType: json['virusType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -854,14 +852,12 @@ class ReagentVirus {
 
   Map<String, dynamic> toJson() => {
     'virusName': virusName,
-    'backbone': backbone,
-    'insertGene': insertGene,
-    'envelopeGene': envelopeGene,
-    'investigator': investigator,
-    'notes': notes,
+    'virusType': virusType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
@@ -870,14 +866,12 @@ class ReagentDNA {
   ReagentDNA({
     required this.id,
     required this.dnaName,
-    required this.backbone,
-    required this.insertGene,
-    required this.selection,
-    required this.investigator,
-    required this.notes,
+    required this.dnaType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
@@ -885,14 +879,12 @@ class ReagentDNA {
 
   final int id;
   final String dnaName;
-  final String backbone;
-  final String insertGene;
-  final String selection;
-  final String investigator;
-  final String notes;
+  final String dnaType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -901,14 +893,12 @@ class ReagentDNA {
     return ReagentDNA(
       id: (json['id'] as num).toInt(),
       dnaName: json['dnaName'] as String? ?? '',
-      backbone: json['backbone'] as String? ?? '',
-      insertGene: json['insertGene'] as String? ?? '',
-      selection: json['selection'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      dnaType: json['dnaType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -917,14 +907,12 @@ class ReagentDNA {
 
   Map<String, dynamic> toJson() => {
     'dnaName': dnaName,
-    'backbone': backbone,
-    'insertGene': insertGene,
-    'selection': selection,
-    'investigator': investigator,
-    'notes': notes,
+    'dnaType': dnaType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
@@ -934,13 +922,12 @@ class ReagentOligo {
     required this.id,
     required this.oligoName,
     required this.sequence,
-    required this.length,
-    required this.purification,
-    required this.investigator,
-    required this.notes,
+    required this.oligoType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
@@ -949,13 +936,12 @@ class ReagentOligo {
   final int id;
   final String oligoName;
   final String sequence;
-  final int length;
-  final String purification;
-  final String investigator;
-  final String notes;
+  final String oligoType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -965,13 +951,12 @@ class ReagentOligo {
       id: (json['id'] as num).toInt(),
       oligoName: json['oligoName'] as String? ?? '',
       sequence: json['sequence'] as String? ?? '',
-      length: (json['length'] as num?)?.toInt() ?? 0,
-      purification: json['purification'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      oligoType: json['oligoType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -981,13 +966,12 @@ class ReagentOligo {
   Map<String, dynamic> toJson() => {
     'oligoName': oligoName,
     'sequence': sequence,
-    'length': length,
-    'purification': purification,
-    'investigator': investigator,
-    'notes': notes,
+    'oligoType': oligoType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
@@ -996,17 +980,14 @@ class ReagentChemical {
   ReagentChemical({
     required this.id,
     required this.chemicalName,
-    required this.casNumber,
-    required this.formula,
-    required this.mw,
-    required this.company,
     required this.catalogNo,
-    required this.concentration,
-    required this.investigator,
-    required this.notes,
+    required this.company,
+    required this.chemType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
@@ -1014,17 +995,14 @@ class ReagentChemical {
 
   final int id;
   final String chemicalName;
-  final String casNumber;
-  final String formula;
-  final String mw;
-  final String company;
   final String catalogNo;
-  final String concentration;
-  final String investigator;
-  final String notes;
+  final String company;
+  final String chemType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -1033,17 +1011,14 @@ class ReagentChemical {
     return ReagentChemical(
       id: (json['id'] as num).toInt(),
       chemicalName: json['chemicalName'] as String? ?? '',
-      casNumber: json['casNumber'] as String? ?? '',
-      formula: json['formula'] as String? ?? '',
-      mw: json['mw'] as String? ?? '',
-      company: json['company'] as String? ?? '',
       catalogNo: json['catalogNo'] as String? ?? '',
-      concentration: json['concentration'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      company: json['company'] as String? ?? '',
+      chemType: json['chemType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -1052,17 +1027,14 @@ class ReagentChemical {
 
   Map<String, dynamic> toJson() => {
     'chemicalName': chemicalName,
-    'casNumber': casNumber,
-    'formula': formula,
-    'mw': mw,
-    'company': company,
     'catalogNo': catalogNo,
-    'concentration': concentration,
-    'investigator': investigator,
-    'notes': notes,
+    'company': company,
+    'chemType': chemType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
@@ -1070,32 +1042,28 @@ class ReagentChemical {
 class ReagentMolecular {
   ReagentMolecular({
     required this.id,
-    required this.reagentName,
-    required this.catalogNo,
-    required this.company,
-    required this.lotNo,
-    required this.reagentType,
-    required this.investigator,
-    required this.notes,
+    required this.mrName,
+    required this.mrType,
     this.boxId,
     required this.location,
-    required this.quantity,
+    required this.position,
+    required this.owner,
+    required this.label,
+    required this.notes,
     required this.isDepleted,
     required this.createdAt,
     required this.updatedAt,
   });
 
   final int id;
-  final String reagentName;
-  final String catalogNo;
-  final String company;
-  final String lotNo;
-  final String reagentType;
-  final String investigator;
-  final String notes;
+  final String mrName;
+  final String mrType;
   final int? boxId;
   final String location;
-  final String quantity;
+  final String position;
+  final String owner;
+  final String label;
+  final String notes;
   final bool isDepleted;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -1103,16 +1071,14 @@ class ReagentMolecular {
   factory ReagentMolecular.fromJson(Map<String, dynamic> json) {
     return ReagentMolecular(
       id: (json['id'] as num).toInt(),
-      reagentName: json['reagentName'] as String? ?? '',
-      catalogNo: json['catalogNo'] as String? ?? '',
-      company: json['company'] as String? ?? '',
-      lotNo: json['lotNo'] as String? ?? '',
-      reagentType: json['reagentType'] as String? ?? '',
-      investigator: json['investigator'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
+      mrName: json['mrName'] as String? ?? '',
+      mrType: json['mrType'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
-      quantity: json['quantity'] as String? ?? '',
+      position: json['position'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      notes: json['notes'] as String? ?? '',
       isDepleted: json['isDepleted'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -1120,16 +1086,14 @@ class ReagentMolecular {
   }
 
   Map<String, dynamic> toJson() => {
-    'reagentName': reagentName,
-    'catalogNo': catalogNo,
-    'company': company,
-    'lotNo': lotNo,
-    'reagentType': reagentType,
-    'investigator': investigator,
-    'notes': notes,
+    'mrName': mrName,
+    'mrType': mrType,
     if (boxId != null) 'boxId': boxId,
     'location': location,
-    'quantity': quantity,
+    'position': position,
+    'owner': owner,
+    'label': label,
+    'notes': notes,
     'isDepleted': isDepleted,
   };
 }
