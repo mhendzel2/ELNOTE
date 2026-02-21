@@ -25,6 +25,7 @@ import (
 	"github.com/mjhen/elnote/server/internal/ops"
 	"github.com/mjhen/elnote/server/internal/previews"
 	"github.com/mjhen/elnote/server/internal/protocols"
+	"github.com/mjhen/elnote/server/internal/reagents"
 	"github.com/mjhen/elnote/server/internal/search"
 	"github.com/mjhen/elnote/server/internal/signatures"
 	"github.com/mjhen/elnote/server/internal/syncer"
@@ -50,6 +51,7 @@ type App struct {
 	datavisService    *datavis.Service
 	templateService   *templates.Service
 	previewService    *previews.Service
+	reagentService    *reagents.Service
 }
 
 func New(cfg config.Config, db *sql.DB) (*App, error) {
@@ -78,6 +80,7 @@ func New(cfg config.Config, db *sql.DB) (*App, error) {
 		datavisService:    datavis.NewService(db, syncService),
 		templateService:   templates.NewService(db, syncService),
 		previewService:    previews.NewService(db),
+		reagentService:    reagents.NewService(db),
 	}, nil
 }
 
@@ -241,6 +244,11 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/experiments/") && strings.HasSuffix(r.URL.Path, "/tags"):
 		a.routeExperimentScope(w, r)
+		return
+
+	// --- Reagents (mutable inventory, all authenticated users) ---
+	case strings.HasPrefix(r.URL.Path, "/v1/reagents/"):
+		a.routeReagentScope(w, r)
 		return
 
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/ops/dashboard":
