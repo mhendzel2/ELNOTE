@@ -384,10 +384,10 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         body = NotificationsScreen(db: widget.db, sync: widget.sync);
         break;
       case 5:
-        body = UsersScreen(sync: widget.sync);
+        body = ReagentsScreen(db: widget.db, sync: widget.sync);
         break;
       case 6:
-        body = ReagentsScreen(db: widget.db, sync: widget.sync);
+        body = UsersScreen(sync: widget.sync);
         break;
       default:
         body = Scaffold(
