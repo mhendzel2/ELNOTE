@@ -155,3 +155,410 @@ class ConflictArtifact {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Protocol models
+// ---------------------------------------------------------------------------
+
+class ProtocolRecord {
+  ProtocolRecord({
+    required this.protocolId,
+    required this.creatorUserId,
+    required this.title,
+    required this.description,
+    required this.status,
+    required this.createdAt,
+  });
+
+  final String protocolId;
+  final String creatorUserId;
+  final String title;
+  final String description;
+  final String status;
+  final DateTime createdAt;
+
+  factory ProtocolRecord.fromJson(Map<String, dynamic> json) {
+    return ProtocolRecord(
+      protocolId: json['protocolId'] as String,
+      creatorUserId: json['creatorUserId'] as String? ?? '',
+      title: json['title'] as String,
+      description: json['description'] as String? ?? '',
+      status: json['status'] as String? ?? 'draft',
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+class ProtocolVersionRecord {
+  ProtocolVersionRecord({
+    required this.versionNum,
+    required this.authorUserId,
+    required this.body,
+    required this.changeLog,
+    required this.publishedAt,
+  });
+
+  final int versionNum;
+  final String authorUserId;
+  final String body;
+  final String changeLog;
+  final DateTime publishedAt;
+
+  factory ProtocolVersionRecord.fromJson(Map<String, dynamic> json) {
+    return ProtocolVersionRecord(
+      versionNum: (json['versionNum'] as num).toInt(),
+      authorUserId: json['authorUserId'] as String? ?? '',
+      body: json['body'] as String,
+      changeLog: json['changeLog'] as String? ?? '',
+      publishedAt: DateTime.parse(json['publishedAt'] as String),
+    );
+  }
+}
+
+class DeviationRecord {
+  DeviationRecord({
+    required this.deviationId,
+    required this.experimentId,
+    required this.protocolId,
+    required this.reportedBy,
+    required this.description,
+    required this.severity,
+    required this.createdAt,
+  });
+
+  final String deviationId;
+  final String experimentId;
+  final String protocolId;
+  final String reportedBy;
+  final String description;
+  final String severity;
+  final DateTime createdAt;
+
+  factory DeviationRecord.fromJson(Map<String, dynamic> json) {
+    return DeviationRecord(
+      deviationId: json['deviationId'] as String,
+      experimentId: json['experimentId'] as String,
+      protocolId: json['protocolId'] as String,
+      reportedBy: json['reportedBy'] as String? ?? '',
+      description: json['description'] as String,
+      severity: json['severity'] as String? ?? 'minor',
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Signature models
+// ---------------------------------------------------------------------------
+
+class SignatureRecord {
+  SignatureRecord({
+    required this.signatureId,
+    required this.experimentId,
+    required this.signerUserId,
+    required this.signerEmail,
+    required this.role,
+    required this.meaning,
+    required this.contentHash,
+    required this.signedAt,
+  });
+
+  final String signatureId;
+  final String experimentId;
+  final String signerUserId;
+  final String signerEmail;
+  final String role;
+  final String meaning;
+  final String contentHash;
+  final DateTime signedAt;
+
+  factory SignatureRecord.fromJson(Map<String, dynamic> json) {
+    return SignatureRecord(
+      signatureId: json['signatureId'] as String,
+      experimentId: json['experimentId'] as String,
+      signerUserId: json['signerUserId'] as String? ?? '',
+      signerEmail: json['signerEmail'] as String? ?? '',
+      role: json['role'] as String? ?? 'author',
+      meaning: json['meaning'] as String? ?? '',
+      contentHash: json['contentHash'] as String? ?? '',
+      signedAt: DateTime.parse(json['signedAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notification models
+// ---------------------------------------------------------------------------
+
+class NotificationRecord {
+  NotificationRecord({
+    required this.notificationId,
+    required this.userId,
+    required this.eventType,
+    required this.title,
+    required this.body,
+    this.experimentId,
+    required this.isRead,
+    required this.createdAt,
+  });
+
+  final String notificationId;
+  final String userId;
+  final String eventType;
+  final String title;
+  final String body;
+  final String? experimentId;
+  final bool isRead;
+  final DateTime createdAt;
+
+  factory NotificationRecord.fromJson(Map<String, dynamic> json) {
+    return NotificationRecord(
+      notificationId: json['notificationId'] as String,
+      userId: json['userId'] as String? ?? '',
+      eventType: json['eventType'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      body: json['body'] as String? ?? '',
+      experimentId: json['experimentId'] as String?,
+      isRead: json['isRead'] as bool? ?? false,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data visualization models
+// ---------------------------------------------------------------------------
+
+class DataExtractRecord {
+  DataExtractRecord({
+    required this.dataExtractId,
+    required this.attachmentId,
+    required this.experimentId,
+    required this.columnHeaders,
+    required this.rowCount,
+    required this.sampleRows,
+    required this.parsedAt,
+  });
+
+  final String dataExtractId;
+  final String attachmentId;
+  final String experimentId;
+  final List<String> columnHeaders;
+  final int rowCount;
+  final List<List<String>> sampleRows;
+  final DateTime parsedAt;
+
+  factory DataExtractRecord.fromJson(Map<String, dynamic> json) {
+    return DataExtractRecord(
+      dataExtractId: json['dataExtractId'] as String,
+      attachmentId: json['attachmentId'] as String? ?? '',
+      experimentId: json['experimentId'] as String? ?? '',
+      columnHeaders: (json['columnHeaders'] as List<dynamic>? ?? <dynamic>[])
+          .cast<String>(),
+      rowCount: (json['rowCount'] as num?)?.toInt() ?? 0,
+      sampleRows: (json['sampleRows'] as List<dynamic>? ?? <dynamic>[])
+          .map((row) => (row as List<dynamic>).cast<String>())
+          .toList(),
+      parsedAt: DateTime.parse(json['parsedAt'] as String),
+    );
+  }
+}
+
+class ChartConfigRecord {
+  ChartConfigRecord({
+    required this.chartConfigId,
+    required this.experimentId,
+    required this.dataExtractId,
+    required this.chartType,
+    required this.title,
+    required this.xColumn,
+    required this.yColumns,
+    required this.options,
+    required this.createdAt,
+  });
+
+  final String chartConfigId;
+  final String experimentId;
+  final String dataExtractId;
+  final String chartType;
+  final String title;
+  final String xColumn;
+  final List<String> yColumns;
+  final Map<String, dynamic> options;
+  final DateTime createdAt;
+
+  factory ChartConfigRecord.fromJson(Map<String, dynamic> json) {
+    return ChartConfigRecord(
+      chartConfigId: json['chartConfigId'] as String,
+      experimentId: json['experimentId'] as String? ?? '',
+      dataExtractId: json['dataExtractId'] as String? ?? '',
+      chartType: json['chartType'] as String? ?? 'line',
+      title: json['title'] as String? ?? '',
+      xColumn: json['xColumn'] as String? ?? '',
+      yColumns: (json['yColumns'] as List<dynamic>? ?? <dynamic>[])
+          .cast<String>(),
+      options: json['options'] as Map<String, dynamic>? ?? <String, dynamic>{},
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template models
+// ---------------------------------------------------------------------------
+
+class TemplateRecord {
+  TemplateRecord({
+    required this.templateId,
+    required this.title,
+    required this.description,
+    required this.bodyTemplate,
+    required this.sections,
+    this.protocolId,
+    required this.tags,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String templateId;
+  final String title;
+  final String description;
+  final String bodyTemplate;
+  final List<TemplateSection> sections;
+  final String? protocolId;
+  final List<String> tags;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory TemplateRecord.fromJson(Map<String, dynamic> json) {
+    return TemplateRecord(
+      templateId: json['templateId'] as String,
+      title: json['title'] as String,
+      description: json['description'] as String? ?? '',
+      bodyTemplate: json['bodyTemplate'] as String? ?? '',
+      sections: (json['sections'] as List<dynamic>? ?? <dynamic>[])
+          .map((s) => TemplateSection.fromJson(s as Map<String, dynamic>))
+          .toList(),
+      protocolId: json['protocolId'] as String?,
+      tags: (json['tags'] as List<dynamic>? ?? <dynamic>[]).cast<String>(),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
+}
+
+class TemplateSection {
+  TemplateSection({
+    required this.name,
+    required this.placeholder,
+    required this.required_,
+  });
+
+  final String name;
+  final String placeholder;
+  final bool required_;
+
+  factory TemplateSection.fromJson(Map<String, dynamic> json) {
+    return TemplateSection(
+      name: json['name'] as String? ?? '',
+      placeholder: json['placeholder'] as String? ?? '',
+      required_: json['required'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'placeholder': placeholder,
+        'required': required_,
+      };
+}
+
+// ---------------------------------------------------------------------------
+// Preview / Thumbnail models
+// ---------------------------------------------------------------------------
+
+class PreviewRecord {
+  PreviewRecord({
+    required this.previewId,
+    required this.attachmentId,
+    required this.previewType,
+    required this.mimeType,
+    required this.width,
+    required this.height,
+    required this.dataBase64,
+    required this.createdAt,
+  });
+
+  final String previewId;
+  final String attachmentId;
+  final String previewType;
+  final String mimeType;
+  final int width;
+  final int height;
+  final String dataBase64;
+  final DateTime createdAt;
+
+  factory PreviewRecord.fromJson(Map<String, dynamic> json) {
+    return PreviewRecord(
+      previewId: json['previewId'] as String,
+      attachmentId: json['attachmentId'] as String? ?? '',
+      previewType: json['previewType'] as String? ?? 'thumbnail',
+      mimeType: json['mimeType'] as String? ?? 'image/png',
+      width: (json['width'] as num?)?.toInt() ?? 0,
+      height: (json['height'] as num?)?.toInt() ?? 0,
+      dataBase64: json['dataBase64'] as String? ?? '',
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Search models
+// ---------------------------------------------------------------------------
+
+class SearchResultRecord {
+  SearchResultRecord({
+    required this.type,
+    required this.id,
+    required this.title,
+    required this.snippet,
+    required this.rank,
+    this.status,
+  });
+
+  final String type;
+  final String id;
+  final String title;
+  final String snippet;
+  final double rank;
+  final String? status;
+
+  factory SearchResultRecord.fromJson(Map<String, dynamic> json) {
+    return SearchResultRecord(
+      type: json['type'] as String? ?? 'experiment',
+      id: json['id'] as String,
+      title: json['title'] as String? ?? '',
+      snippet: json['snippet'] as String? ?? '',
+      rank: (json['rank'] as num?)?.toDouble() ?? 0.0,
+      status: json['status'] as String?,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tag model
+// ---------------------------------------------------------------------------
+
+class TagRecord {
+  TagRecord({required this.tagId, required this.name});
+
+  final String tagId;
+  final String name;
+
+  factory TagRecord.fromJson(Map<String, dynamic> json) {
+    return TagRecord(
+      tagId: json['tagId'] as String,
+      name: json['name'] as String,
+    );
+  }
+}

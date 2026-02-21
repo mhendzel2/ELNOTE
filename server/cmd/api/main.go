@@ -38,6 +38,10 @@ func main() {
 		log.Fatalf("build app: %v", err)
 	}
 
+	if err := application.SeedDefaultAdmin(ctx); err != nil {
+		log.Printf("WARN: seed default admin: %v", err)
+	}
+
 	if err := application.Run(ctx); err != nil {
 		log.Fatalf("run server: %v", err)
 	}

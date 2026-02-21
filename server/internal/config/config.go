@@ -25,6 +25,9 @@ type Config struct {
 	AttachmentDownloadURLTTL    time.Duration
 	DefaultReconcileStaleAfter  time.Duration
 	DefaultReconcileScanLimit   int
+	SearchResultLimit           int
+	PreviewMaxSizeBytes         int64
+	NotificationRetentionDays   int
 }
 
 func Load() (Config, error) {
@@ -45,6 +48,9 @@ func Load() (Config, error) {
 		AttachmentDownloadURLTTL:   getDurationEnv("ATTACHMENT_DOWNLOAD_URL_TTL", 15*time.Minute),
 		DefaultReconcileStaleAfter: getDurationEnv("RECONCILE_STALE_AFTER", 24*time.Hour),
 		DefaultReconcileScanLimit:  getIntEnv("RECONCILE_SCAN_LIMIT", 500),
+		SearchResultLimit:         getIntEnv("SEARCH_RESULT_LIMIT", 50),
+		PreviewMaxSizeBytes:       int64(getIntEnv("PREVIEW_MAX_SIZE_BYTES", 10*1024*1024)),
+		NotificationRetentionDays: getIntEnv("NOTIFICATION_RETENTION_DAYS", 90),
 	}
 
 	if cfg.DatabaseURL == "" {

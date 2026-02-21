@@ -3,8 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,11 +17,19 @@ import (
 	"github.com/mjhen/elnote/server/internal/attachments"
 	"github.com/mjhen/elnote/server/internal/auth"
 	"github.com/mjhen/elnote/server/internal/config"
+	"github.com/mjhen/elnote/server/internal/datavis"
 	"github.com/mjhen/elnote/server/internal/experiments"
 	"github.com/mjhen/elnote/server/internal/httpx"
 	"github.com/mjhen/elnote/server/internal/middleware"
+	"github.com/mjhen/elnote/server/internal/notifications"
 	"github.com/mjhen/elnote/server/internal/ops"
+	"github.com/mjhen/elnote/server/internal/previews"
+	"github.com/mjhen/elnote/server/internal/protocols"
+	"github.com/mjhen/elnote/server/internal/search"
+	"github.com/mjhen/elnote/server/internal/signatures"
 	"github.com/mjhen/elnote/server/internal/syncer"
+	"github.com/mjhen/elnote/server/internal/templates"
+	"github.com/mjhen/elnote/server/internal/users"
 )
 
 type App struct {
@@ -31,6 +42,14 @@ type App struct {
 	syncService       *syncer.Service
 	attachmentService *attachments.Service
 	opsService        *ops.Service
+	protocolService   *protocols.Service
+	searchService     *search.Service
+	userService       *users.Service
+	signatureService  *signatures.Service
+	notifService      *notifications.Service
+	datavisService    *datavis.Service
+	templateService   *templates.Service
+	previewService    *previews.Service
 }
 
 func New(cfg config.Config, db *sql.DB) (*App, error) {
@@ -51,6 +70,14 @@ func New(cfg config.Config, db *sql.DB) (*App, error) {
 		syncService:       syncService,
 		attachmentService: attachments.NewService(db, syncService, signer, cfg.AttachmentUploadURLTTL, cfg.AttachmentDownloadURLTTL),
 		opsService:        ops.NewService(db),
+		protocolService:   protocols.NewService(db, syncService),
+		searchService:     search.NewService(db),
+		userService:       users.NewService(db),
+		signatureService:  signatures.NewService(db, syncService),
+		notifService:      notifications.NewService(db),
+		datavisService:    datavis.NewService(db, syncService),
+		templateService:   templates.NewService(db, syncService),
+		previewService:    previews.NewService(db),
 	}, nil
 }
 
@@ -115,6 +142,107 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.routeAttachmentScope(w, r)
 		return
 
+	// --- Protocols ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/protocols":
+		a.handleCreateProtocol(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/protocols":
+		a.handleListProtocols(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/v1/protocols/"):
+		a.routeProtocolScope(w, r)
+		return
+
+	// --- Search ---
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/search":
+		a.handleSearch(w, r)
+		return
+
+	// --- Users (admin) ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/users":
+		a.handleCreateUser(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/users":
+		a.handleListUsers(w, r)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/admin/reset-default":
+		a.handleResetDefaultAdmin(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/v1/users/"):
+		a.routeUserScope(w, r)
+		return
+
+	// --- Signatures ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/signatures":
+		a.handleSignExperiment(w, r)
+		return
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/experiments/") && strings.HasSuffix(r.URL.Path, "/signatures"):
+		a.routeExperimentScope(w, r)
+		return
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/experiments/") && strings.HasSuffix(r.URL.Path, "/signatures/verify"):
+		a.routeExperimentScope(w, r)
+		return
+
+	// --- Notifications ---
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/notifications":
+		a.handleListNotifications(w, r)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/notifications/read-all":
+		a.handleMarkAllNotificationsRead(w, r)
+		return
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/notifications/") && strings.HasSuffix(r.URL.Path, "/read"):
+		a.handleMarkNotificationRead(w, r)
+		return
+
+	// --- Data Visualization ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/data/parse-csv":
+		a.handleParseCSV(w, r)
+		return
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/data/extracts/"):
+		a.handleGetDataExtract(w, r)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/charts":
+		a.handleCreateChart(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/charts":
+		a.handleListCharts(w, r)
+		return
+
+	// --- Templates ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/templates":
+		a.handleCreateTemplate(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/templates":
+		a.handleListTemplates(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/v1/templates/"):
+		a.routeTemplateScope(w, r)
+		return
+
+	// --- Clone / Create from template ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/clone":
+		a.handleCloneExperiment(w, r)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/from-template":
+		a.handleCreateFromTemplate(w, r)
+		return
+
+	// --- Previews / Thumbnails ---
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/attachments/") && strings.HasSuffix(r.URL.Path, "/preview"):
+		a.handleGetAttachmentPreview(w, r)
+		return
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/attachments/") && strings.HasSuffix(r.URL.Path, "/generate-preview"):
+		a.handleGeneratePreview(w, r)
+		return
+
+	// --- Tags ---
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/experiments/") && strings.HasSuffix(r.URL.Path, "/tags"):
+		a.routeExperimentScope(w, r)
+		return
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/experiments/") && strings.HasSuffix(r.URL.Path, "/tags"):
+		a.routeExperimentScope(w, r)
+		return
+
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/ops/dashboard":
 		a.handleOpsDashboard(w, r)
 		return
@@ -163,6 +291,26 @@ func (a *App) routeExperimentScope(w http.ResponseWriter, r *http.Request) {
 		a.handleCreateComment(w, r, experimentID)
 	case r.Method == http.MethodGet && action == "comments":
 		a.handleListComments(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "signatures":
+		a.handleListSignatures(w, r, experimentID)
+	case action == "signatures" && r.Method == http.MethodGet:
+		a.handleListSignatures(w, r, experimentID)
+	case r.Method == http.MethodGet && strings.HasPrefix(action, "signatures/verify"):
+		a.handleVerifySignatures(w, r, experimentID)
+	case r.Method == http.MethodPost && action == "tags":
+		a.handleAddTag(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "tags":
+		a.handleListTags(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "data-extracts":
+		a.handleListDataExtracts(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "previews":
+		a.handleListExperimentPreviews(w, r, experimentID)
+	case r.Method == http.MethodPost && action == "protocols":
+		a.handleLinkProtocol(w, r, experimentID)
+	case r.Method == http.MethodPost && action == "deviations":
+		a.handleRecordDeviation(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "deviations":
+		a.handleListDeviations(w, r, experimentID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -224,7 +372,7 @@ func (a *App) requireAdmin(r *http.Request) (middleware.AuthUser, bool) {
 	if err != nil {
 		return middleware.AuthUser{}, false
 	}
-	if user.Role != "admin" {
+	if user.Role != "admin" && user.Role != "owner" {
 		return middleware.AuthUser{}, false
 	}
 	return user, true
@@ -804,6 +952,1269 @@ func (a *App) handleOpsForensicExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Protocol handlers
+// ---------------------------------------------------------------------------
+
+func parseSubResourcePath(path, prefix string) (resourceID string, action string, ok bool) {
+	trimmed := strings.TrimPrefix(path, prefix)
+	parts := strings.SplitN(strings.Trim(trimmed, "/"), "/", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return "", "", false
+	}
+	resourceID = parts[0]
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+	return resourceID, action, true
+}
+
+func (a *App) routeProtocolScope(w http.ResponseWriter, r *http.Request) {
+	protocolID, action, ok := parseSubResourcePath(r.URL.Path, "/v1/protocols/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case r.Method == http.MethodGet && action == "":
+		a.handleGetProtocol(w, r, protocolID)
+	case r.Method == http.MethodPost && action == "publish":
+		a.handlePublishProtocolVersion(w, r, protocolID)
+	case r.Method == http.MethodGet && action == "versions":
+		a.handleListProtocolVersions(w, r, protocolID)
+	case r.Method == http.MethodPost && action == "status":
+		a.handleUpdateProtocolStatus(w, r, protocolID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *App) handleCreateProtocol(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		InitialBody string `json:"initialBody"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.protocolService.CreateProtocol(r.Context(), protocols.CreateProtocolInput{
+		OwnerUserID: user.ID,
+		Title:       req.Title,
+		Description: req.Description,
+		InitialBody: req.InitialBody,
+	})
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleGetProtocol(w http.ResponseWriter, r *http.Request, protocolID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.protocolService.GetProtocol(r.Context(), protocolID, user.ID, user.Role)
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleListProtocols(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.protocolService.ListProtocols(r.Context(), user.ID, user.Role)
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"protocols": resp})
+}
+
+func (a *App) handlePublishProtocolVersion(w http.ResponseWriter, r *http.Request, protocolID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Body      string `json:"body"`
+		ChangeLog string `json:"changeLog"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.protocolService.PublishVersion(r.Context(), protocols.PublishVersionInput{
+		ProtocolID:    protocolID,
+		AuthorUserID:  user.ID,
+		Body:          req.Body,
+		ChangeSummary: req.ChangeLog,
+	})
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListProtocolVersions(w http.ResponseWriter, r *http.Request, protocolID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.protocolService.ListVersions(r.Context(), protocolID, user.ID, user.Role)
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"versions": resp})
+}
+
+func (a *App) handleUpdateProtocolStatus(w http.ResponseWriter, r *http.Request, protocolID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if user.Role != "admin" {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	type request struct {
+		Status string `json:"status"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := a.protocolService.UpdateStatus(r.Context(), protocolID, user.ID, req.Status); err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": req.Status})
+}
+
+func (a *App) handleLinkProtocol(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		ProtocolID string `json:"protocolId"`
+		VersionNum int    `json:"versionNum"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.protocolService.LinkToExperiment(r.Context(), protocols.LinkProtocolInput{
+		ExperimentID:      experimentID,
+		ProtocolID:        req.ProtocolID,
+		ProtocolVersionID: fmt.Sprintf("%d", req.VersionNum),
+		ActorUserID:       user.ID,
+		DeviceID:          user.DeviceID,
+	})
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleRecordDeviation(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		ProtocolID  string `json:"protocolId"`
+		Description string `json:"description"`
+		Severity    string `json:"severity"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.protocolService.RecordDeviation(r.Context(), protocols.RecordDeviationInput{
+		ExperimentID:  experimentID,
+		DeviationType: req.Severity,
+		Rationale:     req.Description,
+		ActorUserID:   user.ID,
+		DeviceID:      user.DeviceID,
+	})
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListDeviations(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.protocolService.ListDeviations(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		a.writeProtocolError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"deviations": resp})
+}
+
+// ---------------------------------------------------------------------------
+// Search handler
+// ---------------------------------------------------------------------------
+
+func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "q is required")
+		return
+	}
+
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	var tags []string
+	if tag != "" {
+		tags = []string{tag}
+	}
+
+	resp, err := a.searchService.Search(r.Context(), search.SearchInput{
+		Query:  q,
+		UserID: user.ID,
+		Role:   user.Role,
+		Tags:   tags,
+	})
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// User management handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) routeUserScope(w http.ResponseWriter, r *http.Request) {
+	userID, action, ok := parseSubResourcePath(r.URL.Path, "/v1/users/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case r.Method == http.MethodGet && action == "":
+		a.handleGetUser(w, r, userID)
+	case r.Method == http.MethodPut && action == "":
+		a.handleUpdateUser(w, r, userID)
+	case r.Method == http.MethodDelete && action == "":
+		a.handleDeleteUser(w, r, userID)
+	case r.Method == http.MethodPost && action == "change-password":
+		a.handleChangePassword(w, r, userID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	admin, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.userService.CreateUser(r.Context(), users.CreateUserInput{
+		Email:       req.Email,
+		Password:    req.Password,
+		Role:        req.Role,
+		AdminUserID: admin.ID,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	_, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	resp, err := a.userService.ListUsers(r.Context())
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"users": resp})
+}
+
+func (a *App) handleGetUser(w http.ResponseWriter, r *http.Request, userID string) {
+	caller, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if caller.ID != userID && caller.Role != "admin" {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	resp, err := a.userService.GetUser(r.Context(), userID)
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request, userID string) {
+	admin, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	type request struct {
+		Role string `json:"role"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.userService.UpdateUser(r.Context(), users.UpdateUserInput{
+		TargetID:    userID,
+		AdminUserID: admin.ID,
+		Role:        req.Role,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request, userID string) {
+	caller, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if caller.ID != userID {
+		httpx.WriteError(w, http.StatusForbidden, "can only change own password")
+		return
+	}
+
+	type request struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := a.userService.ChangePassword(r.Context(), users.ChangePasswordInput{
+		UserID:      userID,
+		OldPassword: req.CurrentPassword,
+		NewPassword: req.NewPassword,
+	}); err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request, userID string) {
+	admin, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	if err := a.userService.DeleteUser(r.Context(), admin.ID, userID); err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleResetDefaultAdmin(w http.ResponseWriter, r *http.Request) {
+	// This is intentionally unauthenticated so a locked-out admin can recover.
+	if err := a.userService.ResetDefaultAdmin(r.Context()); err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
+		"message": "LabAdmin password has been reset to default",
+	})
+}
+
+// SeedDefaultAdmin seeds the LabAdmin account at startup.
+func (a *App) SeedDefaultAdmin(ctx context.Context) error {
+	return a.userService.SeedDefaultAdmin(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// Signature handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) handleSignExperiment(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		ExperimentID  string `json:"experimentId"`
+		Password      string `json:"password"`
+		SignatureType string `json:"signatureType"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.signatureService.Sign(r.Context(), signatures.SignInput{
+		ExperimentID:  req.ExperimentID,
+		SignerUserID:  user.ID,
+		SignatureType: req.SignatureType,
+		Password:      req.Password,
+		DeviceID:      user.DeviceID,
+	})
+	if err != nil {
+		a.writeSignatureError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListSignatures(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.signatureService.ListSignatures(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"signatures": resp})
+}
+
+func (a *App) handleVerifySignatures(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.signatureService.VerifySignatures(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Notification handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) handleListNotifications(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	unreadOnly := strings.TrimSpace(r.URL.Query().Get("unreadOnly")) == "true"
+	limit, err2 := parseIntQuery(r, "limit", 50)
+	if err2 != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err2.Error())
+		return
+	}
+
+	resp, err := a.notifService.List(r.Context(), notifications.ListInput{
+		UserID:     user.ID,
+		UnreadOnly: unreadOnly,
+		Limit:      limit,
+	})
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"notifications": resp})
+}
+
+func (a *App) handleMarkNotificationRead(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Extract notification ID from path: /v1/notifications/{id}/read
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
+		http.NotFound(w, r)
+		return
+	}
+	notifID := parts[2]
+
+	if err := a.notifService.MarkRead(r.Context(), notifID, user.ID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleMarkAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if _, err := a.notifService.MarkAllRead(r.Context(), user.ID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// Data Visualization handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) handleParseCSV(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		AttachmentID string `json:"attachmentId"`
+		ExperimentID string `json:"experimentId"`
+		CsvData      string `json:"csvData"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.datavisService.ParseCSV(r.Context(), datavis.ParseCSVInput{
+		AttachmentID: req.AttachmentID,
+		ExperimentID: req.ExperimentID,
+		CSVData:      []byte(req.CsvData),
+		ActorUserID:  user.ID,
+	})
+	if err != nil {
+		a.writeDatavisError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleGetDataExtract(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	extractID := strings.TrimPrefix(r.URL.Path, "/v1/data/extracts/")
+	extractID = strings.TrimSuffix(extractID, "/")
+
+	resp, err := a.datavisService.GetDataExtract(r.Context(), extractID, user.ID, user.Role)
+	if err != nil {
+		a.writeDatavisError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleListDataExtracts(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.datavisService.ListDataExtracts(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		a.writeDatavisError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"dataExtracts": resp})
+}
+
+func (a *App) handleCreateChart(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		ExperimentID  string         `json:"experimentId"`
+		DataExtractID string         `json:"dataExtractId"`
+		ChartType     string         `json:"chartType"`
+		Title         string         `json:"title"`
+		XColumn       string         `json:"xColumn"`
+		YColumns      []string       `json:"yColumns"`
+		Options       map[string]any `json:"options"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.datavisService.CreateChartConfig(r.Context(), datavis.CreateChartInput{
+		ExperimentID:  req.ExperimentID,
+		DataExtractID: req.DataExtractID,
+		CreatorUserID: user.ID,
+		DeviceID:      user.DeviceID,
+		ChartType:     req.ChartType,
+		Title:         req.Title,
+		XColumn:       req.XColumn,
+		YColumns:      req.YColumns,
+		Options:       req.Options,
+	})
+	if err != nil {
+		a.writeDatavisError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListCharts(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	experimentID := strings.TrimSpace(r.URL.Query().Get("experimentId"))
+	if experimentID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "experimentId is required")
+		return
+	}
+
+	resp, err := a.datavisService.ListChartConfigs(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		a.writeDatavisError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"charts": resp})
+}
+
+// ---------------------------------------------------------------------------
+// Template handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) routeTemplateScope(w http.ResponseWriter, r *http.Request) {
+	templateID, action, ok := parseSubResourcePath(r.URL.Path, "/v1/templates/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case r.Method == http.MethodGet && action == "":
+		a.handleGetTemplate(w, r, templateID)
+	case r.Method == http.MethodPut && action == "":
+		a.handleUpdateTemplate(w, r, templateID)
+	case r.Method == http.MethodDelete && action == "":
+		a.handleDeleteTemplate(w, r, templateID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *App) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Title        string              `json:"title"`
+		Description  string              `json:"description"`
+		BodyTemplate string              `json:"bodyTemplate"`
+		Sections     []templates.Section `json:"sections"`
+		ProtocolID   *string             `json:"protocolId"`
+		Tags         []string            `json:"tags"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.templateService.CreateTemplate(r.Context(), templates.CreateTemplateInput{
+		OwnerUserID:  user.ID,
+		Title:        req.Title,
+		Description:  req.Description,
+		BodyTemplate: req.BodyTemplate,
+		Sections:     req.Sections,
+		ProtocolID:   req.ProtocolID,
+		Tags:         req.Tags,
+	})
+	if err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListTemplates(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.templateService.ListTemplates(r.Context(), user.ID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"templates": resp})
+}
+
+func (a *App) handleGetTemplate(w http.ResponseWriter, r *http.Request, templateID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.templateService.GetTemplate(r.Context(), templateID, user.ID)
+	if err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleUpdateTemplate(w http.ResponseWriter, r *http.Request, templateID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Description  string              `json:"description"`
+		BodyTemplate string              `json:"bodyTemplate"`
+		Sections     []templates.Section `json:"sections"`
+		Tags         []string            `json:"tags"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.templateService.UpdateTemplate(r.Context(), templates.UpdateTemplateInput{
+		TemplateID:   templateID,
+		OwnerUserID:  user.ID,
+		Description:  req.Description,
+		BodyTemplate: req.BodyTemplate,
+		Sections:     req.Sections,
+		Tags:         req.Tags,
+	})
+	if err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleDeleteTemplate(w http.ResponseWriter, r *http.Request, templateID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if err := a.templateService.DeleteTemplate(r.Context(), templateID, user.ID); err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleCloneExperiment(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		SourceExperimentID string `json:"sourceExperimentId"`
+		NewTitle           string `json:"newTitle"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.templateService.CloneExperiment(r.Context(), templates.CloneExperimentInput{
+		SourceExperimentID: req.SourceExperimentID,
+		OwnerUserID:        user.ID,
+		DeviceID:           user.DeviceID,
+		NewTitle:           req.NewTitle,
+	})
+	if err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleCreateFromTemplate(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		TemplateID string `json:"templateId"`
+		Title      string `json:"title"`
+		Body       string `json:"body"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := a.templateService.CreateFromTemplate(r.Context(), templates.CreateFromTemplateInput{
+		TemplateID:  req.TemplateID,
+		OwnerUserID: user.ID,
+		DeviceID:    user.DeviceID,
+		Title:       req.Title,
+		Body:        req.Body,
+	})
+	if err != nil {
+		a.writeTemplateError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Preview / Thumbnail handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) handleGetAttachmentPreview(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// /v1/attachments/{id}/preview
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
+		http.NotFound(w, r)
+		return
+	}
+	attachmentID := parts[2]
+
+	resp, err := a.previewService.GetPreviewForAttachment(r.Context(), attachmentID, user.ID, user.Role)
+	if err != nil {
+		a.writePreviewError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleGeneratePreview(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// /v1/attachments/{id}/generate-preview
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
+		http.NotFound(w, r)
+		return
+	}
+	attachmentID := parts[2]
+
+	// Read raw image data from multipart or base64 JSON body
+	var imageData []byte
+	var sourceMime string
+
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/") {
+		if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MB max
+			httpx.WriteError(w, http.StatusBadRequest, "invalid multipart data")
+			return
+		}
+		file, header, err := r.FormFile("image")
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "image field is required")
+			return
+		}
+		defer file.Close()
+		imageData, err = io.ReadAll(file)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "cannot read image data")
+			return
+		}
+		sourceMime = header.Header.Get("Content-Type")
+	} else {
+		type request struct {
+			ImageBase64 string `json:"imageBase64"`
+			MimeType    string `json:"mimeType"`
+		}
+		var req request
+		if err := httpx.DecodeJSON(r, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		decoded, err := decodeBase64(req.ImageBase64)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid base64 image data")
+			return
+		}
+		imageData = decoded
+		sourceMime = req.MimeType
+	}
+
+	resp, err := a.previewService.GenerateThumbnail(r.Context(), previews.GenerateInput{
+		AttachmentID: attachmentID,
+		ImageData:    imageData,
+		SourceMime:   sourceMime,
+		ActorUserID:  user.ID,
+	})
+	if err != nil {
+		a.writePreviewError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (a *App) handleListExperimentPreviews(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	resp, err := a.previewService.ListPreviewsForExperiment(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		a.writePreviewError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"previews": resp})
+}
+
+// ---------------------------------------------------------------------------
+// Tag handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) handleAddTag(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Tag string `json:"tag"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	tag := strings.TrimSpace(strings.ToLower(req.Tag))
+	if tag == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "tag is required")
+		return
+	}
+
+	// Upsert tag, then link
+	_, err = a.db.ExecContext(r.Context(),
+		`INSERT INTO tags (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, tag)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var tagID string
+	err = a.db.QueryRowContext(r.Context(), `SELECT id FROM tags WHERE name = $1`, tag).Scan(&tagID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_, err = a.db.ExecContext(r.Context(),
+		`INSERT INTO experiment_tags (experiment_id, tag_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		experimentID, tagID, user.ID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"tagId": tagID, "tag": tag})
+}
+
+func (a *App) handleListTags(w http.ResponseWriter, r *http.Request, experimentID string) {
+	_, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	rows, err := a.db.QueryContext(r.Context(),
+		`SELECT t.id, t.name FROM tags t JOIN experiment_tags et ON et.tag_id = t.id WHERE et.experiment_id = $1 ORDER BY t.name`,
+		experimentID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	type tagResult struct {
+		ID   string `json:"tagId"`
+		Name string `json:"name"`
+	}
+	var tags []tagResult
+	for rows.Next() {
+		var t tagResult
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		tags = append(tags, t)
+	}
+	if tags == nil {
+		tags = []tagResult{}
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
+
+func decodeBase64(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
+}
+
+// Ensure json and io imports are used
+var (
+	_ = json.Unmarshal
+	_ = io.ReadAll
+)
+
+// ---------------------------------------------------------------------------
+// Error writers for new services
+// ---------------------------------------------------------------------------
+
+func (a *App) writeProtocolError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, protocols.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, protocols.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, protocols.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (a *App) writeUserError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, users.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, users.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, users.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, users.ErrDuplicateEmail):
+		httpx.WriteError(w, http.StatusConflict, "email already in use")
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (a *App) writeSignatureError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, signatures.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, signatures.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, signatures.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, signatures.ErrInvalidPassword):
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid password for signing")
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (a *App) writeDatavisError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, datavis.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, datavis.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, datavis.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (a *App) writeTemplateError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, templates.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, templates.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, templates.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (a *App) writePreviewError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, previews.ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, previews.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, previews.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func (a *App) writeExperimentError(w http.ResponseWriter, err error) {

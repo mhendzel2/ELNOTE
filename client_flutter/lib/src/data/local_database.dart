@@ -21,7 +21,7 @@ class LocalDatabase {
 
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE local_experiments (
@@ -101,6 +101,156 @@ class LocalDatabase {
         ''');
 
         await db.insert('sync_state', {'id': 1, 'cursor': 0});
+
+        // New tables for enhanced features
+        await db.execute('''
+          CREATE TABLE local_protocols (
+            protocol_id TEXT PRIMARY KEY,
+            creator_user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'draft',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_protocol_versions (
+            protocol_id TEXT NOT NULL,
+            version_num INTEGER NOT NULL,
+            author_user_id TEXT NOT NULL,
+            body TEXT NOT NULL,
+            change_log TEXT NOT NULL DEFAULT '',
+            published_at INTEGER NOT NULL,
+            PRIMARY KEY (protocol_id, version_num)
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_signatures (
+            signature_id TEXT PRIMARY KEY,
+            experiment_server_id TEXT NOT NULL,
+            signer_user_id TEXT NOT NULL,
+            signer_email TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'author',
+            meaning TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL DEFAULT '',
+            signed_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_notifications (
+            notification_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            experiment_id TEXT,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_tags (
+            tag_id TEXT NOT NULL,
+            experiment_server_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            PRIMARY KEY (tag_id, experiment_server_id)
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_templates (
+            template_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            body_template TEXT NOT NULL DEFAULT '',
+            sections_json TEXT NOT NULL DEFAULT '[]',
+            protocol_id TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_data_extracts (
+            data_extract_id TEXT PRIMARY KEY,
+            attachment_id TEXT NOT NULL,
+            experiment_server_id TEXT NOT NULL,
+            column_headers_json TEXT NOT NULL DEFAULT '[]',
+            row_count INTEGER NOT NULL DEFAULT 0,
+            sample_rows_json TEXT NOT NULL DEFAULT '[]',
+            parsed_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_chart_configs (
+            chart_config_id TEXT PRIMARY KEY,
+            experiment_server_id TEXT NOT NULL,
+            data_extract_id TEXT NOT NULL,
+            chart_type TEXT NOT NULL DEFAULT 'line',
+            title TEXT NOT NULL DEFAULT '',
+            x_column TEXT NOT NULL DEFAULT '',
+            y_columns_json TEXT NOT NULL DEFAULT '[]',
+            options_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_deviations (
+            deviation_id TEXT PRIMARY KEY,
+            experiment_server_id TEXT NOT NULL,
+            protocol_id TEXT NOT NULL,
+            reported_by TEXT NOT NULL,
+            description TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'minor',
+            created_at INTEGER NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE local_previews (
+            preview_id TEXT PRIMARY KEY,
+            attachment_id TEXT NOT NULL UNIQUE,
+            preview_type TEXT NOT NULL DEFAULT 'thumbnail',
+            mime_type TEXT NOT NULL DEFAULT 'image/png',
+            width INTEGER NOT NULL DEFAULT 0,
+            height INTEGER NOT NULL DEFAULT 0,
+            data_base64 TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Drop and recreate is simplest for dev; production would use proper migration
+          final tables = ['local_protocols', 'local_protocol_versions',
+            'local_signatures', 'local_notifications', 'local_tags',
+            'local_templates', 'local_data_extracts', 'local_chart_configs',
+            'local_deviations', 'local_previews'];
+          for (final table in tables) {
+            await db.execute('CREATE TABLE IF NOT EXISTS $table (id TEXT PRIMARY KEY)');
+          }
+          // Re-run full schema via delete + recreate approach
+          await db.execute('DROP TABLE IF EXISTS local_protocols');
+          await db.execute('DROP TABLE IF EXISTS local_protocol_versions');
+          await db.execute('DROP TABLE IF EXISTS local_signatures');
+          await db.execute('DROP TABLE IF EXISTS local_notifications');
+          await db.execute('DROP TABLE IF EXISTS local_tags');
+          await db.execute('DROP TABLE IF EXISTS local_templates');
+          await db.execute('DROP TABLE IF EXISTS local_data_extracts');
+          await db.execute('DROP TABLE IF EXISTS local_chart_configs');
+          await db.execute('DROP TABLE IF EXISTS local_deviations');
+          await db.execute('DROP TABLE IF EXISTS local_previews');
+
+          await _createEnhancedTables(db);
+        }
       },
     );
   }
@@ -619,5 +769,321 @@ class LocalDatabase {
       body: row['body'] as String,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Enhanced feature tables helper
+  // ---------------------------------------------------------------------------
+
+  static Future<void> _createEnhancedTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE local_protocols (
+        protocol_id TEXT PRIMARY KEY,
+        creator_user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_protocol_versions (
+        protocol_id TEXT NOT NULL,
+        version_num INTEGER NOT NULL,
+        author_user_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        change_log TEXT NOT NULL DEFAULT '',
+        published_at INTEGER NOT NULL,
+        PRIMARY KEY (protocol_id, version_num)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_signatures (
+        signature_id TEXT PRIMARY KEY,
+        experiment_server_id TEXT NOT NULL,
+        signer_user_id TEXT NOT NULL,
+        signer_email TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'author',
+        meaning TEXT NOT NULL DEFAULT '',
+        content_hash TEXT NOT NULL DEFAULT '',
+        signed_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_notifications (
+        notification_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        experiment_id TEXT,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_tags (
+        tag_id TEXT NOT NULL,
+        experiment_server_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        PRIMARY KEY (tag_id, experiment_server_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_templates (
+        template_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        body_template TEXT NOT NULL DEFAULT '',
+        sections_json TEXT NOT NULL DEFAULT '[]',
+        protocol_id TEXT,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_data_extracts (
+        data_extract_id TEXT PRIMARY KEY,
+        attachment_id TEXT NOT NULL,
+        experiment_server_id TEXT NOT NULL,
+        column_headers_json TEXT NOT NULL DEFAULT '[]',
+        row_count INTEGER NOT NULL DEFAULT 0,
+        sample_rows_json TEXT NOT NULL DEFAULT '[]',
+        parsed_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_chart_configs (
+        chart_config_id TEXT PRIMARY KEY,
+        experiment_server_id TEXT NOT NULL,
+        data_extract_id TEXT NOT NULL,
+        chart_type TEXT NOT NULL DEFAULT 'line',
+        title TEXT NOT NULL DEFAULT '',
+        x_column TEXT NOT NULL DEFAULT '',
+        y_columns_json TEXT NOT NULL DEFAULT '[]',
+        options_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_deviations (
+        deviation_id TEXT PRIMARY KEY,
+        experiment_server_id TEXT NOT NULL,
+        protocol_id TEXT NOT NULL,
+        reported_by TEXT NOT NULL,
+        description TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'minor',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE local_previews (
+        preview_id TEXT PRIMARY KEY,
+        attachment_id TEXT NOT NULL UNIQUE,
+        preview_type TEXT NOT NULL DEFAULT 'thumbnail',
+        mime_type TEXT NOT NULL DEFAULT 'image/png',
+        width INTEGER NOT NULL DEFAULT 0,
+        height INTEGER NOT NULL DEFAULT 0,
+        data_base64 TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Protocol local storage
+  // ---------------------------------------------------------------------------
+
+  Future<void> upsertProtocol(Map<String, dynamic> json) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _database.insert(
+      'local_protocols',
+      {
+        'protocol_id': json['protocolId'] as String,
+        'creator_user_id': json['creatorUserId'] as String? ?? '',
+        'title': json['title'] as String? ?? '',
+        'description': json['description'] as String? ?? '',
+        'status': json['status'] as String? ?? 'draft',
+        'created_at': json['createdAt'] != null
+            ? DateTime.parse(json['createdAt'] as String).millisecondsSinceEpoch
+            : now,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, Object?>>> listLocalProtocols() async {
+    return _database.query('local_protocols', orderBy: 'updated_at DESC');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notification local storage
+  // ---------------------------------------------------------------------------
+
+  Future<void> replaceNotifications(List<Map<String, dynamic>> notifications) async {
+    await _database.transaction((txn) async {
+      await txn.delete('local_notifications');
+      for (final n in notifications) {
+        await txn.insert('local_notifications', {
+          'notification_id': n['notificationId'] as String,
+          'user_id': n['userId'] as String? ?? '',
+          'event_type': n['eventType'] as String? ?? '',
+          'title': n['title'] as String? ?? '',
+          'body': n['body'] as String? ?? '',
+          'experiment_id': n['experimentId'] as String?,
+          'is_read': (n['isRead'] as bool? ?? false) ? 1 : 0,
+          'created_at': n['createdAt'] != null
+              ? DateTime.parse(n['createdAt'] as String).millisecondsSinceEpoch
+              : DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, Object?>>> listLocalNotifications({bool unreadOnly = false}) async {
+    if (unreadOnly) {
+      return _database.query('local_notifications',
+          where: 'is_read = 0', orderBy: 'created_at DESC');
+    }
+    return _database.query('local_notifications', orderBy: 'created_at DESC');
+  }
+
+  Future<int> countUnreadNotifications() async {
+    final result = await _database.rawQuery(
+        'SELECT COUNT(*) as cnt FROM local_notifications WHERE is_read = 0');
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  Future<void> markNotificationReadLocal(String notificationId) async {
+    await _database.update(
+      'local_notifications',
+      {'is_read': 1},
+      where: 'notification_id = ?',
+      whereArgs: [notificationId],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Signature local storage
+  // ---------------------------------------------------------------------------
+
+  Future<void> replaceSignaturesForExperiment({
+    required String experimentServerId,
+    required List<Map<String, dynamic>> signatures,
+  }) async {
+    await _database.transaction((txn) async {
+      await txn.delete('local_signatures',
+          where: 'experiment_server_id = ?', whereArgs: [experimentServerId]);
+      for (final s in signatures) {
+        await txn.insert('local_signatures', {
+          'signature_id': s['signatureId'] as String,
+          'experiment_server_id': experimentServerId,
+          'signer_user_id': s['signerUserId'] as String? ?? '',
+          'signer_email': s['signerEmail'] as String? ?? '',
+          'role': s['role'] as String? ?? 'author',
+          'meaning': s['meaning'] as String? ?? '',
+          'content_hash': s['contentHash'] as String? ?? '',
+          'signed_at': s['signedAt'] != null
+              ? DateTime.parse(s['signedAt'] as String).millisecondsSinceEpoch
+              : DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, Object?>>> listLocalSignatures(String experimentServerId) async {
+    return _database.query('local_signatures',
+        where: 'experiment_server_id = ?',
+        whereArgs: [experimentServerId],
+        orderBy: 'signed_at ASC');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tag local storage
+  // ---------------------------------------------------------------------------
+
+  Future<void> replaceTagsForExperiment({
+    required String experimentServerId,
+    required List<Map<String, dynamic>> tags,
+  }) async {
+    await _database.transaction((txn) async {
+      await txn.delete('local_tags',
+          where: 'experiment_server_id = ?', whereArgs: [experimentServerId]);
+      for (final t in tags) {
+        await txn.insert('local_tags', {
+          'tag_id': t['tagId'] as String,
+          'experiment_server_id': experimentServerId,
+          'name': t['name'] as String,
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, Object?>>> listLocalTags(String experimentServerId) async {
+    return _database.query('local_tags',
+        where: 'experiment_server_id = ?',
+        whereArgs: [experimentServerId],
+        orderBy: 'name ASC');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Template local storage
+  // ---------------------------------------------------------------------------
+
+  Future<void> replaceTemplates(List<Map<String, dynamic>> templates) async {
+    await _database.transaction((txn) async {
+      await txn.delete('local_templates');
+      for (final t in templates) {
+        await txn.insert('local_templates', {
+          'template_id': t['templateId'] as String,
+          'title': t['title'] as String? ?? '',
+          'description': t['description'] as String? ?? '',
+          'body_template': t['bodyTemplate'] as String? ?? '',
+          'sections_json': jsonEncode(t['sections'] ?? []),
+          'protocol_id': t['protocolId'] as String?,
+          'tags_json': jsonEncode(t['tags'] ?? []),
+          'created_at': t['createdAt'] != null
+              ? DateTime.parse(t['createdAt'] as String).millisecondsSinceEpoch
+              : DateTime.now().millisecondsSinceEpoch,
+          'updated_at': t['updatedAt'] != null
+              ? DateTime.parse(t['updatedAt'] as String).millisecondsSinceEpoch
+              : DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  Future<List<Map<String, Object?>>> listLocalTemplates() async {
+    return _database.query('local_templates', orderBy: 'updated_at DESC');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preview local cache
+  // ---------------------------------------------------------------------------
+
+  Future<void> cachePreview(Map<String, dynamic> json) async {
+    await _database.insert(
+      'local_previews',
+      {
+        'preview_id': json['previewId'] as String,
+        'attachment_id': json['attachmentId'] as String,
+        'preview_type': json['previewType'] as String? ?? 'thumbnail',
+        'mime_type': json['mimeType'] as String? ?? 'image/png',
+        'width': (json['width'] as num?)?.toInt() ?? 0,
+        'height': (json['height'] as num?)?.toInt() ?? 0,
+        'data_base64': json['dataBase64'] as String? ?? '',
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, Object?>?> getLocalPreview(String attachmentId) async {
+    final rows = await _database.query('local_previews',
+        where: 'attachment_id = ?', whereArgs: [attachmentId], limit: 1);
+    return rows.isEmpty ? null : rows.first;
   }
 }

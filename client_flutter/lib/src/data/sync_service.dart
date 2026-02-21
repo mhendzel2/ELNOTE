@@ -36,6 +36,27 @@ class SyncService {
           case 'create_proposal':
             await _replayCreateProposal(item.id, payload);
             break;
+          case 'create_protocol':
+            await _replayCreateProtocol(item.id, payload);
+            break;
+          case 'publish_protocol_version':
+            await _replayPublishProtocolVersion(item.id, payload);
+            break;
+          case 'sign_experiment':
+            await _replaySignExperiment(item.id, payload);
+            break;
+          case 'add_tag':
+            await _replayAddTag(item.id, payload);
+            break;
+          case 'record_deviation':
+            await _replayRecordDeviation(item.id, payload);
+            break;
+          case 'create_template':
+            await _replayCreateTemplate(item.id, payload);
+            break;
+          case 'create_chart_config':
+            await _replayCreateChartConfig(item.id, payload);
+            break;
           default:
             await db.markOutboxError(item.id, 'unknown mutation type: ${item.mutationType}');
             break;
@@ -261,5 +282,150 @@ class SyncService {
     } on ApiException {
       // Not all roles/scopes can fetch proposals for all experiments.
     }
+
+    // Hydrate signatures
+    try {
+      final sigs = await api.listSignatures(serverExperimentId);
+      await db.replaceSignaturesForExperiment(
+        experimentServerId: serverExperimentId,
+        signatures: sigs,
+      );
+    } on ApiException {
+      // May not have permission.
+    }
+
+    // Hydrate tags
+    try {
+      final tags = await api.listTags(serverExperimentId);
+      await db.replaceTagsForExperiment(
+        experimentServerId: serverExperimentId,
+        tags: tags,
+      );
+    } on ApiException {
+      // May not have permission.
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Protocols
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replayCreateProtocol(int outboxId, Map<String, dynamic> payload) async {
+    await api.createProtocol(
+      title: payload['title'] as String,
+      description: payload['description'] as String? ?? '',
+    );
+    await db.markOutboxDone(outboxId);
+  }
+
+  Future<void> _replayPublishProtocolVersion(int outboxId, Map<String, dynamic> payload) async {
+    await api.publishProtocolVersion(
+      protocolId: payload['protocolId'] as String,
+      body: payload['body'] as String,
+      changeLog: payload['changeLog'] as String? ?? '',
+    );
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Signatures
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replaySignExperiment(int outboxId, Map<String, dynamic> payload) async {
+    final serverExperimentId = payload['experimentServerId'] as String;
+    await api.signExperiment(
+      experimentId: serverExperimentId,
+      meaning: payload['meaning'] as String? ?? 'authored',
+      password: payload['password'] as String,
+    );
+    await _hydrateExperiment(serverExperimentId);
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Tags
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replayAddTag(int outboxId, Map<String, dynamic> payload) async {
+    final serverExperimentId = payload['experimentServerId'] as String;
+    await api.addTag(
+      experimentId: serverExperimentId,
+      tag: payload['name'] as String,
+    );
+    await _hydrateExperiment(serverExperimentId);
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Deviations
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replayRecordDeviation(int outboxId, Map<String, dynamic> payload) async {
+    final serverExperimentId = payload['experimentServerId'] as String;
+    await api.recordDeviation(
+      experimentId: serverExperimentId,
+      protocolId: payload['protocolId'] as String,
+      description: payload['description'] as String,
+      severity: payload['severity'] as String? ?? 'minor',
+    );
+    await _hydrateExperiment(serverExperimentId);
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Templates
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replayCreateTemplate(int outboxId, Map<String, dynamic> payload) async {
+    await api.createTemplate(
+      title: payload['title'] as String,
+      description: payload['description'] as String? ?? '',
+      bodyTemplate: payload['bodyTemplate'] as String? ?? '',
+      sections: (payload['sections'] as List<dynamic>?)
+              ?.map((e) => e as Map<String, dynamic>)
+              .toList() ??
+          [],
+    );
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Replay: Chart config
+  // ---------------------------------------------------------------------------
+
+  Future<void> _replayCreateChartConfig(int outboxId, Map<String, dynamic> payload) async {
+    await api.createChartConfig(
+      experimentId: payload['experimentServerId'] as String,
+      dataExtractId: payload['dataExtractId'] as String,
+      chartType: payload['chartType'] as String? ?? 'line',
+      title: payload['title'] as String? ?? '',
+      xColumn: payload['xColumn'] as String? ?? '',
+      yColumns: (payload['yColumns'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+    );
+    await db.markOutboxDone(outboxId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk sync helpers for new entities
+  // ---------------------------------------------------------------------------
+
+  Future<void> refreshProtocols() async {
+    final protocols = await api.listProtocols();
+    for (final p in protocols) {
+      await db.upsertProtocol(p);
+    }
+  }
+
+  Future<void> refreshNotifications() async {
+    final notifications = await api.listNotifications();
+    await db.replaceNotifications(notifications);
+  }
+
+  Future<void> refreshTemplates() async {
+    final templates = await api.listTemplates();
+    await db.replaceTemplates(templates);
   }
 }
