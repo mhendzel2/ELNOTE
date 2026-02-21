@@ -1,0 +1,1137 @@
+openapi: 3.1.0
+info:
+  title: ELNOTE API
+  version: 0.3.0
+  description: |
+    Immutable experiment record API.
+    Corrections are represented as addendum entries; no destructive edits are allowed.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Health probe
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/auth/login:
+    post:
+      summary: Login and issue tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /v1/auth/refresh:
+    post:
+      summary: Rotate refresh token and issue new tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Tokens rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or expired refresh token
+
+  /v1/auth/logout:
+    post:
+      summary: Revoke refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Token revoked
+
+  /v1/experiments:
+    post:
+      summary: Create experiment and original immutable entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExperimentRequest'
+      responses:
+        '201':
+          description: Experiment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateExperimentResponse'
+        '403':
+          description: Caller is not allowed to create experiment records
+
+  /v1/experiments/{experimentId}/complete:
+    post:
+      summary: Mark experiment as completed (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Experiment marked completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentStatusResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: Experiment not found
+
+  /v1/experiments/{experimentId}/addendums:
+    post:
+      summary: Add immutable correction entry
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddendumRequest'
+      responses:
+        '201':
+          description: Addendum created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAddendumResponse'
+        '403':
+          description: Forbidden
+        '409':
+          description: Stale addendum conflict artifact created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaleAddendumConflictResponse'
+
+  /v1/experiments/{experimentId}:
+    get:
+      summary: Get effective experiment view
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Effective experiment view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentEffectiveResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: Experiment not found
+
+  /v1/experiments/{experimentId}/history:
+    get:
+      summary: Get immutable original + addendum chain
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Complete immutable chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentHistoryResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: Experiment not found
+
+  /v1/experiments/{experimentId}/comments:
+    post:
+      summary: Add admin comment on completed experiment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCommentResponse'
+        '403':
+          description: Forbidden
+    get:
+      summary: List experiment comments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ExperimentId'
+      responses:
+        '200':
+          description: Comments list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentListResponse'
+
+  /v1/proposals:
+    post:
+      summary: Create admin proposal linked to completed source experiment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProposalRequest'
+      responses:
+        '201':
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateProposalResponse'
+        '403':
+          description: Forbidden
+    get:
+      summary: List proposals for a source experiment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sourceExperimentId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Proposal list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalListResponse'
+
+  /v1/sync/pull:
+    get:
+      summary: Pull cursor-based sync events for current user scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Sync page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPullResponse'
+
+  /v1/sync/conflicts:
+    get:
+      summary: List conflict artifacts visible to current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Conflict list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictListResponse'
+
+  /v1/sync/ws:
+    get:
+      summary: WebSocket endpoint for sync event streaming
+      description: |
+        Upgrade to WebSocket and receive heartbeat/events payloads.
+        Authorization uses `Bearer` token in request headers.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '101':
+          description: Switching protocols
+
+  /v1/attachments/initiate:
+    post:
+      summary: Initiate attachment upload and issue signed PUT URL
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitiateAttachmentRequest'
+      responses:
+        '201':
+          description: Attachment metadata created and upload URL issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InitiateAttachmentResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Forbidden
+        '404':
+          description: Experiment not found
+
+  /v1/attachments/{attachmentId}/complete:
+    post:
+      summary: Complete attachment upload by validating checksum and size
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteAttachmentRequest'
+      responses:
+        '200':
+          description: Attachment marked as completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteAttachmentResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Forbidden
+        '404':
+          description: Attachment not found
+
+  /v1/attachments/{attachmentId}/download:
+    get:
+      summary: Issue signed GET URL for attachment download
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signed download URL issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadAttachmentResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Forbidden
+        '404':
+          description: Attachment not found
+
+  /v1/ops/dashboard:
+    get:
+      summary: Admin dashboard counters for auth/sync/attachments/audit
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dashboard snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsDashboardResponse'
+        '403':
+          description: Admin role required
+
+  /v1/ops/audit/verify:
+    get:
+      summary: Verify tamper-evident audit hash chain integrity
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Audit hash chain verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditVerificationResponse'
+        '409':
+          description: Hash chain mismatch detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditVerificationResponse'
+        '403':
+          description: Admin role required
+
+  /v1/ops/attachments/reconcile:
+    post:
+      summary: Run attachment metadata drift reconciliation scan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileAttachmentsRequest'
+      responses:
+        '200':
+          description: Reconcile run completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileAttachmentsResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Admin role required
+
+  /v1/ops/forensic/export:
+    get:
+      summary: Export completed experiment forensic bundle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: experimentId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Forensic export payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForensicExportResponse'
+        '400':
+          description: Invalid input
+        '403':
+          description: Forbidden
+        '404':
+          description: Experiment not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ExperimentId:
+      name: experimentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    LoginRequest:
+      type: object
+      required: [email, password, deviceName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        deviceName:
+          type: string
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [tokenType, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
+      properties:
+        tokenType:
+          type: string
+          example: Bearer
+        accessToken:
+          type: string
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshToken:
+          type: string
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+
+    CreateExperimentRequest:
+      type: object
+      required: [title, originalBody]
+      properties:
+        title:
+          type: string
+        originalBody:
+          type: string
+
+    CreateExperimentResponse:
+      type: object
+      required: [experimentId, originalEntryId, status, createdAt]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        originalEntryId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, completed]
+        createdAt:
+          type: string
+          format: date-time
+
+    ExperimentStatusResponse:
+      type: object
+      required: [experimentId, status, completedAt]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed]
+        completedAt:
+          type: string
+          format: date-time
+
+    CreateAddendumRequest:
+      type: object
+      required: [body]
+      properties:
+        baseEntryId:
+          type: string
+          format: uuid
+          nullable: true
+        body:
+          type: string
+
+    CreateAddendumResponse:
+      type: object
+      required: [entryId, experimentId, supersedesEntryId, createdAt]
+      properties:
+        entryId:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        supersedesEntryId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    StaleAddendumConflictResponse:
+      type: object
+      required: [error, conflictArtifactId, experimentId, serverLatestEntryId]
+      properties:
+        error:
+          type: string
+        conflictArtifactId:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        clientBaseEntryId:
+          type: string
+          format: uuid
+          nullable: true
+        serverLatestEntryId:
+          type: string
+          format: uuid
+
+    ExperimentEntry:
+      type: object
+      required: [entryId, entryType, body, createdAt]
+      properties:
+        entryId:
+          type: string
+          format: uuid
+        entryType:
+          type: string
+          enum: [original, addendum]
+        supersedesEntryId:
+          type: string
+          format: uuid
+          nullable: true
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ExperimentEffectiveResponse:
+      type: object
+      required: [experimentId, ownerUserId, status, title, effectiveEntryId, effectiveBody, createdAt]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, completed]
+        title:
+          type: string
+        originalEntryId:
+          type: string
+          format: uuid
+        effectiveEntryId:
+          type: string
+          format: uuid
+        effectiveBody:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ExperimentHistoryResponse:
+      type: object
+      required: [experimentId, entries]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperimentEntry'
+
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+
+    CreateCommentResponse:
+      type: object
+      required: [commentId, experimentId, createdAt]
+      properties:
+        commentId:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    Comment:
+      type: object
+      required: [commentId, experimentId, authorUserId, body, createdAt]
+      properties:
+        commentId:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        authorUserId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CommentListResponse:
+      type: object
+      required: [experimentId, comments]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+
+    CreateProposalRequest:
+      type: object
+      required: [sourceExperimentId, title, body]
+      properties:
+        sourceExperimentId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        body:
+          type: string
+
+    CreateProposalResponse:
+      type: object
+      required: [proposalId, sourceExperimentId, createdAt]
+      properties:
+        proposalId:
+          type: string
+          format: uuid
+        sourceExperimentId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    Proposal:
+      type: object
+      required: [proposalId, sourceExperimentId, proposerUserId, title, body, createdAt]
+      properties:
+        proposalId:
+          type: string
+          format: uuid
+        sourceExperimentId:
+          type: string
+          format: uuid
+        proposerUserId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ProposalListResponse:
+      type: object
+      required: [sourceExperimentId, proposals]
+      properties:
+        sourceExperimentId:
+          type: string
+          format: uuid
+        proposals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Proposal'
+
+    SyncEvent:
+      type: object
+      required: [cursor, ownerUserId, eventType, aggregateType, payload, createdAt]
+      properties:
+        cursor:
+          type: integer
+          format: int64
+        ownerUserId:
+          type: string
+          format: uuid
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        deviceId:
+          type: string
+          format: uuid
+          nullable: true
+        eventType:
+          type: string
+        aggregateType:
+          type: string
+        aggregateId:
+          type: string
+          format: uuid
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    SyncPullResponse:
+      type: object
+      required: [cursor, events, hasMore]
+      properties:
+        cursor:
+          type: integer
+          format: int64
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncEvent'
+        hasMore:
+          type: boolean
+
+    ConflictArtifact:
+      type: object
+      required: [conflictArtifactId, ownerUserId, experimentId, actionType, payload, createdAt]
+      properties:
+        conflictArtifactId:
+          type: string
+          format: uuid
+        ownerUserId:
+          type: string
+          format: uuid
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        deviceId:
+          type: string
+          format: uuid
+          nullable: true
+        experimentId:
+          type: string
+          format: uuid
+        actionType:
+          type: string
+        clientBaseEntryId:
+          type: string
+          format: uuid
+          nullable: true
+        serverLatestEntryId:
+          type: string
+          format: uuid
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ConflictListResponse:
+      type: object
+      required: [conflicts]
+      properties:
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConflictArtifact'
+
+    InitiateAttachmentRequest:
+      type: object
+      required: [experimentId, objectKey, sizeBytes, mimeType]
+      properties:
+        experimentId:
+          type: string
+          format: uuid
+        objectKey:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        mimeType:
+          type: string
+
+    CompleteAttachmentRequest:
+      type: object
+      required: [checksum, sizeBytes]
+      properties:
+        checksum:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+
+    InitiateAttachmentResponse:
+      type: object
+      required: [attachmentId, experimentId, objectKey, uploadUrl, expiresAt, createdAt]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        objectKey:
+          type: string
+        uploadUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CompleteAttachmentResponse:
+      type: object
+      required: [attachmentId, status, completedAt]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed]
+        completedAt:
+          type: string
+          format: date-time
+
+    DownloadAttachmentResponse:
+      type: object
+      required: [attachmentId, objectKey, downloadUrl, expiresAt]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+        objectKey:
+          type: string
+        downloadUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+
+    OpsDashboardResponse:
+      type: object
+      required:
+        - nowUtc
+        - authLogin24h
+        - authRefresh24h
+        - authLogout24h
+        - syncEvents24h
+        - syncConflicts24h
+        - attachmentInitiated24h
+        - attachmentCompleted24h
+        - reconcileRuns24h
+        - reconcileFindingsUnresolved
+        - auditEvents24h
+      properties:
+        nowUtc:
+          type: string
+          format: date-time
+        authLogin24h:
+          type: integer
+          format: int64
+        authRefresh24h:
+          type: integer
+          format: int64
+        authLogout24h:
+          type: integer
+          format: int64
+        syncEvents24h:
+          type: integer
+          format: int64
+        syncConflicts24h:
+          type: integer
+          format: int64
+        attachmentInitiated24h:
+          type: integer
+          format: int64
+        attachmentCompleted24h:
+          type: integer
+          format: int64
+        reconcileRuns24h:
+          type: integer
+          format: int64
+        reconcileFindingsUnresolved:
+          type: integer
+          format: int64
+        auditEvents24h:
+          type: integer
+          format: int64
+
+    AuditVerificationResponse:
+      type: object
+      required: [valid, checkedEvents, message, checkedAt]
+      properties:
+        valid:
+          type: boolean
+        checkedEvents:
+          type: integer
+          format: int64
+        brokenAtEventId:
+          type: integer
+          format: int64
+          nullable: true
+        message:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+        lastVerifiedEventId:
+          type: integer
+          format: int64
+          nullable: true
+
+    ReconcileAttachmentsRequest:
+      type: object
+      properties:
+        staleAfterSeconds:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Optional. Uses server default when omitted.
+        scanLimit:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          description: Optional. Uses server default when omitted.
+
+    ReconcileAttachmentsResponse:
+      type: object
+      required:
+        - runId
+        - startedAt
+        - finishedAt
+        - staleInitiatedCount
+        - missingChecksumCount
+        - totalFindingsCreated
+      properties:
+        runId:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        staleInitiatedCount:
+          type: integer
+        missingChecksumCount:
+          type: integer
+        totalFindingsCreated:
+          type: integer
+
+    ForensicExportResponse:
+      type: object
+      required: [exportedAt, experiment, entries, comments, proposals, attachments, auditEvents]
+      properties:
+        exportedAt:
+          type: string
+          format: date-time
+        experiment:
+          type: object
+          additionalProperties: true
+        entries:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        comments:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        proposals:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        attachments:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        auditEvents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
