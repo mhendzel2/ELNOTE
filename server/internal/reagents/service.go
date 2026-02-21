@@ -939,6 +939,110 @@ func (s *Service) BulkImportAntibodies(ctx context.Context, items []Antibody, us
 	return result, nil
 }
 
+func (s *Service) BulkImportStorage(ctx context.Context, items []Storage, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateStorage(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.Name, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportBoxes(ctx context.Context, items []Box, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateBox(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.BoxNo, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportCellLines(ctx context.Context, items []CellLine, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateCellLine(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.CellLineName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportViruses(ctx context.Context, items []Virus, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateVirus(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.VirusName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportDNA(ctx context.Context, items []DNA, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateDNA(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.DNAName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportOligos(ctx context.Context, items []Oligo, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateOligo(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.OligoName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportChemicals(ctx context.Context, items []Chemical, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateChemical(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.ChemicalName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
+func (s *Service) BulkImportMolecular(ctx context.Context, items []Molecular, userID string) (*BulkImportResult, error) {
+	result := &BulkImportResult{}
+	for _, item := range items {
+		_, err := s.CreateMolecular(ctx, item, userID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("row %q: %v", item.MRName, err))
+			continue
+		}
+		result.Imported++
+	}
+	return result, nil
+}
+
 // Helper to unmarshal generic JSON for bulk import endpoints
 func UnmarshalJSON(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)

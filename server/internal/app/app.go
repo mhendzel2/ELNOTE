@@ -1444,6 +1444,17 @@ func (a *App) SeedDefaultAdmin(ctx context.Context) error {
 	return a.userService.SeedDefaultAdmin(ctx)
 }
 
+// SeedDefaultProtocols inserts the standard protocol library on first run.
+func (a *App) SeedDefaultProtocols(ctx context.Context) error {
+	// Use the LabAdmin user ID as the protocol owner.
+	var adminID string
+	err := a.db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = 'labadmin' LIMIT 1`).Scan(&adminID)
+	if err != nil {
+		return fmt.Errorf("find admin user for protocol seeding: %w", err)
+	}
+	return a.protocolService.SeedDefaultProtocols(ctx, adminID)
+}
+
 // ---------------------------------------------------------------------------
 // Signature handlers
 // ---------------------------------------------------------------------------
@@ -2428,6 +2439,10 @@ func (a *App) routeReagentScope(w http.ResponseWriter, r *http.Request) {
 	case resource == "search" && r.Method == http.MethodGet:
 		a.handleReagentSearch(w, r)
 
+	// --- Bulk import ---
+	case idStr == "import" && r.Method == http.MethodPost:
+		a.handleReagentBulkImport(w, r, resource)
+
 	default:
 		http.NotFound(w, r)
 	}
@@ -3148,6 +3163,115 @@ func (a *App) handleReagentSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (a *App) handleReagentBulkImport(w http.ResponseWriter, r *http.Request, reagentType string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10 MB max
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "read body: "+err.Error())
+		return
+	}
+
+	var result *reagents.BulkImportResult
+
+	switch reagentType {
+	case "storage":
+		var req struct {
+			Items []reagents.Storage `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportStorage(r.Context(), req.Items, user.ID)
+	case "boxes":
+		var req struct {
+			Items []reagents.Box `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportBoxes(r.Context(), req.Items, user.ID)
+	case "antibodies":
+		var req struct {
+			Items []reagents.Antibody `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportAntibodies(r.Context(), req.Items, user.ID)
+	case "cell-lines":
+		var req struct {
+			Items []reagents.CellLine `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportCellLines(r.Context(), req.Items, user.ID)
+	case "viruses":
+		var req struct {
+			Items []reagents.Virus `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportViruses(r.Context(), req.Items, user.ID)
+	case "dna":
+		var req struct {
+			Items []reagents.DNA `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportDNA(r.Context(), req.Items, user.ID)
+	case "oligos":
+		var req struct {
+			Items []reagents.Oligo `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportOligos(r.Context(), req.Items, user.ID)
+	case "chemicals":
+		var req struct {
+			Items []reagents.Chemical `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportChemicals(r.Context(), req.Items, user.ID)
+	case "molecular":
+		var req struct {
+			Items []reagents.Molecular `json:"items"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err = a.reagentService.BulkImportMolecular(r.Context(), req.Items, user.ID)
+	default:
+		httpx.WriteError(w, http.StatusNotFound, "unknown reagent type")
+		return
+	}
+
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (a *App) Run(ctx context.Context) error {

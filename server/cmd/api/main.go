@@ -42,6 +42,10 @@ func main() {
 		log.Printf("WARN: seed default admin: %v", err)
 	}
 
+	if err := application.SeedDefaultProtocols(ctx); err != nil {
+		log.Printf("WARN: seed default protocols: %v", err)
+	}
+
 	if err := application.Run(ctx); err != nil {
 		log.Fatalf("run server: %v", err)
 	}
