@@ -2316,6 +2316,840 @@ func parseIntQuery(r *http.Request, key string, fallback int) (int, error) {
 	return value, nil
 }
 
+// ===========================================================================
+// Reagent handlers — mutable CRUD for lab inventory
+// ===========================================================================
+
+func (a *App) routeReagentScope(w http.ResponseWriter, r *http.Request) {
+	// Strip prefix to get the sub-path: /v1/reagents/antibodies -> antibodies
+	// /v1/reagents/antibodies/42 -> antibodies/42
+	sub := strings.TrimPrefix(r.URL.Path, "/v1/reagents/")
+	sub = strings.TrimSuffix(sub, "/")
+
+	parts := strings.SplitN(sub, "/", 2)
+	resource := parts[0]
+	var idStr string
+	if len(parts) > 1 {
+		idStr = parts[1]
+	}
+
+	switch {
+	// --- Storage ---
+	case resource == "storage" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListStorage(w, r)
+	case resource == "storage" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateStorage(w, r)
+	case resource == "storage" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateStorage(w, r, idStr)
+	case resource == "storage" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteStorage(w, r, idStr)
+
+	// --- Boxes ---
+	case resource == "boxes" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListBoxes(w, r)
+	case resource == "boxes" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateBox(w, r)
+	case resource == "boxes" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateBox(w, r, idStr)
+	case resource == "boxes" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteBox(w, r, idStr)
+
+	// --- Antibodies ---
+	case resource == "antibodies" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListAntibodies(w, r)
+	case resource == "antibodies" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateAntibody(w, r)
+	case resource == "antibodies" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateAntibody(w, r, idStr)
+	case resource == "antibodies" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteAntibody(w, r, idStr)
+
+	// --- Cell Lines ---
+	case resource == "cell-lines" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListCellLines(w, r)
+	case resource == "cell-lines" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateCellLine(w, r)
+	case resource == "cell-lines" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateCellLine(w, r, idStr)
+	case resource == "cell-lines" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteCellLine(w, r, idStr)
+
+	// --- Viruses ---
+	case resource == "viruses" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListViruses(w, r)
+	case resource == "viruses" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateVirus(w, r)
+	case resource == "viruses" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateVirus(w, r, idStr)
+	case resource == "viruses" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteVirus(w, r, idStr)
+
+	// --- DNA ---
+	case resource == "dna" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListDNA(w, r)
+	case resource == "dna" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateDNA(w, r)
+	case resource == "dna" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateDNA(w, r, idStr)
+	case resource == "dna" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteDNA(w, r, idStr)
+
+	// --- Oligos ---
+	case resource == "oligos" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListOligos(w, r)
+	case resource == "oligos" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateOligo(w, r)
+	case resource == "oligos" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateOligo(w, r, idStr)
+	case resource == "oligos" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteOligo(w, r, idStr)
+
+	// --- Chemicals ---
+	case resource == "chemicals" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListChemicals(w, r)
+	case resource == "chemicals" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateChemical(w, r)
+	case resource == "chemicals" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateChemical(w, r, idStr)
+	case resource == "chemicals" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteChemical(w, r, idStr)
+
+	// --- Molecular ---
+	case resource == "molecular" && idStr == "" && r.Method == http.MethodGet:
+		a.handleListMolecular(w, r)
+	case resource == "molecular" && idStr == "" && r.Method == http.MethodPost:
+		a.handleCreateMolecular(w, r)
+	case resource == "molecular" && idStr != "" && r.Method == http.MethodPut:
+		a.handleUpdateMolecular(w, r, idStr)
+	case resource == "molecular" && idStr != "" && r.Method == http.MethodDelete:
+		a.handleDeleteMolecular(w, r, idStr)
+
+	// --- Cross-type search ---
+	case resource == "search" && r.Method == http.MethodGet:
+		a.handleReagentSearch(w, r)
+
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *App) writeReagentError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, reagents.ErrNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, reagents.ErrInvalidInput):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+	}
+}
+
+// --- Storage handlers ---
+
+func (a *App) handleListStorage(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	items, err := a.reagentService.ListStorage(r.Context())
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"storage": items})
+}
+
+func (a *App) handleCreateStorage(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Storage
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateStorage(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateStorage(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Storage
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateStorage(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteStorage(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.DeleteStorage(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Box handlers ---
+
+func (a *App) handleListBoxes(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	items, err := a.reagentService.ListBoxes(r.Context(), q)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"boxes": items})
+}
+
+func (a *App) handleCreateBox(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Box
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateBox(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateBox(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Box
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateBox(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteBox(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.DeleteBox(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Antibody handlers ---
+
+func (a *App) handleListAntibodies(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListAntibodies(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"antibodies": items})
+}
+
+func (a *App) handleCreateAntibody(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Antibody
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateAntibody(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateAntibody(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Antibody
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateAntibody(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteAntibody(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteAntibody(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Cell Line handlers ---
+
+func (a *App) handleListCellLines(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListCellLines(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"cellLines": items})
+}
+
+func (a *App) handleCreateCellLine(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.CellLine
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateCellLine(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateCellLine(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.CellLine
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateCellLine(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteCellLine(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteCellLine(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Virus handlers ---
+
+func (a *App) handleListViruses(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListViruses(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"viruses": items})
+}
+
+func (a *App) handleCreateVirus(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Virus
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateVirus(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateVirus(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Virus
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateVirus(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteVirus(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteVirus(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- DNA handlers ---
+
+func (a *App) handleListDNA(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListDNA(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"dna": items})
+}
+
+func (a *App) handleCreateDNA(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.DNA
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateDNA(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateDNA(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.DNA
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateDNA(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteDNA(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteDNA(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Oligo handlers ---
+
+func (a *App) handleListOligos(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListOligos(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"oligos": items})
+}
+
+func (a *App) handleCreateOligo(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Oligo
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateOligo(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateOligo(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Oligo
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateOligo(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteOligo(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteOligo(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Chemical handlers ---
+
+func (a *App) handleListChemicals(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListChemicals(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"chemicals": items})
+}
+
+func (a *App) handleCreateChemical(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Chemical
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateChemical(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateChemical(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Chemical
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateChemical(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteChemical(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteChemical(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Molecular handlers ---
+
+func (a *App) handleListMolecular(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	dep := strings.TrimSpace(r.URL.Query().Get("depleted")) == "true"
+	items, err := a.reagentService.ListMolecular(r.Context(), q, dep)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"molecular": items})
+}
+
+func (a *App) handleCreateMolecular(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req reagents.Molecular
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := a.reagentService.CreateMolecular(r.Context(), req, user.ID)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
+func (a *App) handleUpdateMolecular(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req reagents.Molecular
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.reagentService.UpdateMolecular(r.Context(), id, req, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteMolecular(w http.ResponseWriter, r *http.Request, idStr string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := a.reagentService.SoftDeleteMolecular(r.Context(), id, user.ID); err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Cross-type reagent search ---
+
+func (a *App) handleReagentSearch(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.authenticate(r); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	results, err := a.reagentService.SearchAll(r.Context(), q)
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
 func (a *App) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              a.cfg.HTTPAddr,
