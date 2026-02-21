@@ -1,0 +1,893 @@
+import 'package:flutter/material.dart';
+
+import '../data/api_client.dart';
+import '../data/local_database.dart';
+import '../data/sync_service.dart';
+import '../models/models.dart';
+
+// ===========================================================================
+// ReagentsScreen — tabbed reagent inventory browser/editor
+// ===========================================================================
+
+class ReagentsScreen extends StatefulWidget {
+  const ReagentsScreen({super.key, required this.db, required this.sync});
+
+  final LocalDatabase db;
+  final SyncService sync;
+
+  @override
+  State<ReagentsScreen> createState() => _ReagentsScreenState();
+}
+
+class _ReagentsScreenState extends State<ReagentsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabCtl;
+  final _searchCtl = TextEditingController();
+  bool _showDepleted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtl = TabController(length: 9, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtl.dispose();
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  ApiClient get api => widget.sync.api;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Toolbar: search + show-depleted toggle
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchCtl,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Search reagents…',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilterChip(
+                label: const Text('Show depleted'),
+                selected: _showDepleted,
+                onSelected: (v) => setState(() => _showDepleted = v),
+              ),
+            ],
+          ),
+        ),
+        TabBar(
+          controller: _tabCtl,
+          isScrollable: true,
+          tabs: const [
+            Tab(text: 'Storage'),
+            Tab(text: 'Boxes'),
+            Tab(text: 'Antibodies'),
+            Tab(text: 'Cell Lines'),
+            Tab(text: 'Viruses'),
+            Tab(text: 'DNA'),
+            Tab(text: 'Oligos'),
+            Tab(text: 'Chemicals'),
+            Tab(text: 'Molecular'),
+          ],
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabCtl,
+            children: [
+              _StorageTab(api: api),
+              _BoxTab(api: api, q: _searchCtl.text),
+              _ReagentListTab<ReagentAntibody>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listAntibodies(q: q, depleted: dep),
+                nameOf: (a) => a.antibodyName,
+                subtitleOf: (a) =>
+                    '${a.company} | ${a.catalogNo} | ${a.antigen}',
+                onAdd: () => _addAntibody(),
+                onTap: (a) => _editAntibody(a),
+                onDelete: (a) => api.deleteAntibody(a.id),
+                isDepletedOf: (a) => a.isDepleted,
+              ),
+              _ReagentListTab<ReagentCellLine>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listCellLines(q: q, depleted: dep),
+                nameOf: (c) => c.cellLineName,
+                subtitleOf: (c) => '${c.species} | ${c.medium}',
+                onAdd: () => _addCellLine(),
+                onTap: (c) => _editCellLine(c),
+                onDelete: (c) => api.deleteCellLine(c.id),
+                isDepletedOf: (c) => c.isDepleted,
+              ),
+              _ReagentListTab<ReagentVirus>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listViruses(q: q, depleted: dep),
+                nameOf: (v) => v.virusName,
+                subtitleOf: (v) => '${v.backbone} | ${v.insertGene}',
+                onAdd: () => _addVirus(),
+                onTap: (v) => _editVirus(v),
+                onDelete: (v) => api.deleteVirus(v.id),
+                isDepletedOf: (v) => v.isDepleted,
+              ),
+              _ReagentListTab<ReagentDNA>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listDNA(q: q, depleted: dep),
+                nameOf: (d) => d.dnaName,
+                subtitleOf: (d) => '${d.backbone} | ${d.insertGene}',
+                onAdd: () => _addDNA(),
+                onTap: (d) => _editDNA(d),
+                onDelete: (d) => api.deleteDNA(d.id),
+                isDepletedOf: (d) => d.isDepleted,
+              ),
+              _ReagentListTab<ReagentOligo>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listOligos(q: q, depleted: dep),
+                nameOf: (o) => o.oligoName,
+                subtitleOf: (o) =>
+                    'Len: ${o.length} | ${o.purification}',
+                onAdd: () => _addOligo(),
+                onTap: (o) => _editOligo(o),
+                onDelete: (o) => api.deleteOligo(o.id),
+                isDepletedOf: (o) => o.isDepleted,
+              ),
+              _ReagentListTab<ReagentChemical>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listChemicals(q: q, depleted: dep),
+                nameOf: (c) => c.chemicalName,
+                subtitleOf: (c) =>
+                    '${c.company} | ${c.catalogNo} | ${c.formula}',
+                onAdd: () => _addChemical(),
+                onTap: (c) => _editChemical(c),
+                onDelete: (c) => api.deleteChemical(c.id),
+                isDepletedOf: (c) => c.isDepleted,
+              ),
+              _ReagentListTab<ReagentMolecular>(
+                api: api,
+                q: _searchCtl.text,
+                depleted: _showDepleted,
+                fetch: (q, dep) => api.listMolecular(q: q, depleted: dep),
+                nameOf: (m) => m.reagentName,
+                subtitleOf: (m) =>
+                    '${m.company} | ${m.catalogNo} | ${m.reagentType}',
+                onAdd: () => _addMolecular(),
+                onTap: (m) => _editMolecular(m),
+                onDelete: (m) => api.deleteMolecular(m.id),
+                isDepletedOf: (m) => m.isDepleted,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // =========================================================================
+  // Add / Edit dialogs
+  // =========================================================================
+
+  Future<void> _addAntibody() async {
+    final fields = await _showFormDialog('New Antibody', [
+      'antibodyName', 'catalogNo', 'company', 'class', 'antigen',
+      'host', 'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createAntibody(fields);
+    setState(() {});
+  }
+
+  Future<void> _editAntibody(ReagentAntibody a) async {
+    final fields = await _showFormDialog('Edit Antibody', [
+      'antibodyName', 'catalogNo', 'company', 'class', 'antigen',
+      'host', 'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'antibodyName': a.antibodyName,
+      'catalogNo': a.catalogNo,
+      'company': a.company,
+      'class': a.antibodyClass,
+      'antigen': a.antigen,
+      'host': a.host,
+      'investigator': a.investigator,
+      'notes': a.notes,
+      'location': a.location,
+      'quantity': a.quantity,
+    });
+    if (fields == null) return;
+    await api.updateAntibody(a.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addCellLine() async {
+    final fields = await _showFormDialog('New Cell Line', [
+      'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
+      'obtainFrom', 'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createCellLine(fields);
+    setState(() {});
+  }
+
+  Future<void> _editCellLine(ReagentCellLine c) async {
+    final fields = await _showFormDialog('Edit Cell Line', [
+      'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
+      'obtainFrom', 'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'cellLineName': c.cellLineName,
+      'selection': c.selection,
+      'species': c.species,
+      'parentalCell': c.parentalCell,
+      'medium': c.medium,
+      'obtainFrom': c.obtainFrom,
+      'investigator': c.investigator,
+      'notes': c.notes,
+      'location': c.location,
+      'quantity': c.quantity,
+    });
+    if (fields == null) return;
+    await api.updateCellLine(c.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addVirus() async {
+    final fields = await _showFormDialog('New Virus', [
+      'virusName', 'backbone', 'insertGene', 'envelopeGene',
+      'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createVirus(fields);
+    setState(() {});
+  }
+
+  Future<void> _editVirus(ReagentVirus v) async {
+    final fields = await _showFormDialog('Edit Virus', [
+      'virusName', 'backbone', 'insertGene', 'envelopeGene',
+      'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'virusName': v.virusName,
+      'backbone': v.backbone,
+      'insertGene': v.insertGene,
+      'envelopeGene': v.envelopeGene,
+      'investigator': v.investigator,
+      'notes': v.notes,
+      'location': v.location,
+      'quantity': v.quantity,
+    });
+    if (fields == null) return;
+    await api.updateVirus(v.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addDNA() async {
+    final fields = await _showFormDialog('New DNA', [
+      'dnaName', 'backbone', 'insertGene', 'selection',
+      'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createDNA(fields);
+    setState(() {});
+  }
+
+  Future<void> _editDNA(ReagentDNA d) async {
+    final fields = await _showFormDialog('Edit DNA', [
+      'dnaName', 'backbone', 'insertGene', 'selection',
+      'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'dnaName': d.dnaName,
+      'backbone': d.backbone,
+      'insertGene': d.insertGene,
+      'selection': d.selection,
+      'investigator': d.investigator,
+      'notes': d.notes,
+      'location': d.location,
+      'quantity': d.quantity,
+    });
+    if (fields == null) return;
+    await api.updateDNA(d.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addOligo() async {
+    final fields = await _showFormDialog('New Oligo', [
+      'oligoName', 'sequence', 'length', 'purification',
+      'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    // length needs to be int
+    if (fields.containsKey('length')) {
+      fields['length'] = int.tryParse(fields['length'].toString()) ?? 0;
+    }
+    await api.createOligo(fields);
+    setState(() {});
+  }
+
+  Future<void> _editOligo(ReagentOligo o) async {
+    final fields = await _showFormDialog('Edit Oligo', [
+      'oligoName', 'sequence', 'length', 'purification',
+      'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'oligoName': o.oligoName,
+      'sequence': o.sequence,
+      'length': o.length.toString(),
+      'purification': o.purification,
+      'investigator': o.investigator,
+      'notes': o.notes,
+      'location': o.location,
+      'quantity': o.quantity,
+    });
+    if (fields == null) return;
+    if (fields.containsKey('length')) {
+      fields['length'] = int.tryParse(fields['length'].toString()) ?? 0;
+    }
+    await api.updateOligo(o.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addChemical() async {
+    final fields = await _showFormDialog('New Chemical', [
+      'chemicalName', 'casNumber', 'formula', 'mw', 'company',
+      'catalogNo', 'concentration', 'investigator', 'notes',
+      'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createChemical(fields);
+    setState(() {});
+  }
+
+  Future<void> _editChemical(ReagentChemical c) async {
+    final fields = await _showFormDialog('Edit Chemical', [
+      'chemicalName', 'casNumber', 'formula', 'mw', 'company',
+      'catalogNo', 'concentration', 'investigator', 'notes',
+      'location', 'quantity',
+    ], initial: {
+      'chemicalName': c.chemicalName,
+      'casNumber': c.casNumber,
+      'formula': c.formula,
+      'mw': c.mw,
+      'company': c.company,
+      'catalogNo': c.catalogNo,
+      'concentration': c.concentration,
+      'investigator': c.investigator,
+      'notes': c.notes,
+      'location': c.location,
+      'quantity': c.quantity,
+    });
+    if (fields == null) return;
+    await api.updateChemical(c.id, fields);
+    setState(() {});
+  }
+
+  Future<void> _addMolecular() async {
+    final fields = await _showFormDialog('New Molecular Reagent', [
+      'reagentName', 'catalogNo', 'company', 'lotNo', 'reagentType',
+      'investigator', 'notes', 'location', 'quantity',
+    ]);
+    if (fields == null) return;
+    await api.createMolecular(fields);
+    setState(() {});
+  }
+
+  Future<void> _editMolecular(ReagentMolecular m) async {
+    final fields = await _showFormDialog('Edit Molecular Reagent', [
+      'reagentName', 'catalogNo', 'company', 'lotNo', 'reagentType',
+      'investigator', 'notes', 'location', 'quantity',
+    ], initial: {
+      'reagentName': m.reagentName,
+      'catalogNo': m.catalogNo,
+      'company': m.company,
+      'lotNo': m.lotNo,
+      'reagentType': m.reagentType,
+      'investigator': m.investigator,
+      'notes': m.notes,
+      'location': m.location,
+      'quantity': m.quantity,
+    });
+    if (fields == null) return;
+    await api.updateMolecular(m.id, fields);
+    setState(() {});
+  }
+
+  // =========================================================================
+  // Generic form dialog
+  // =========================================================================
+
+  Future<Map<String, dynamic>?> _showFormDialog(
+    String title,
+    List<String> fieldKeys, {
+    Map<String, String> initial = const {},
+  }) async {
+    final controllers = <String, TextEditingController>{};
+    for (final key in fieldKeys) {
+      controllers[key] = TextEditingController(text: initial[key] ?? '');
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: fieldKeys.map((key) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    controller: controllers[key],
+                    decoration: InputDecoration(
+                      labelText: _labelFor(key),
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                    maxLines: key == 'notes' || key == 'sequence' ? 3 : 1,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return null;
+
+    final result = <String, dynamic>{};
+    for (final key in fieldKeys) {
+      result[key] = controllers[key]!.text;
+    }
+    return result;
+  }
+
+  String _labelFor(String key) {
+    // Convert camelCase to label
+    final buffer = StringBuffer();
+    for (int i = 0; i < key.length; i++) {
+      final ch = key[i];
+      if (i == 0) {
+        buffer.write(ch.toUpperCase());
+      } else if (ch == ch.toUpperCase() && ch != ch.toLowerCase()) {
+        buffer.write(' ');
+        buffer.write(ch);
+      } else {
+        buffer.write(ch);
+      }
+    }
+    return buffer.toString();
+  }
+}
+
+// ===========================================================================
+// Generic reagent list tab (reusable for all 7 depletable types)
+// ===========================================================================
+
+class _ReagentListTab<T> extends StatefulWidget {
+  const _ReagentListTab({
+    required this.api,
+    required this.q,
+    required this.depleted,
+    required this.fetch,
+    required this.nameOf,
+    required this.subtitleOf,
+    required this.onAdd,
+    required this.onTap,
+    required this.onDelete,
+    required this.isDepletedOf,
+  });
+
+  final ApiClient api;
+  final String q;
+  final bool depleted;
+  final Future<List<T>> Function(String q, bool depleted) fetch;
+  final String Function(T) nameOf;
+  final String Function(T) subtitleOf;
+  final VoidCallback onAdd;
+  final Future<void> Function(T) onTap;
+  final Future<void> Function(T) onDelete;
+  final bool Function(T) isDepletedOf;
+
+  @override
+  State<_ReagentListTab<T>> createState() => _ReagentListTabState<T>();
+}
+
+class _ReagentListTabState<T> extends State<_ReagentListTab<T>> {
+  List<T> _items = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReagentListTab<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.q != widget.q || oldWidget.depleted != widget.depleted) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items = await widget.fetch(widget.q, widget.depleted);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_error != null)
+          Center(child: Text('Error: $_error'))
+        else if (_items.isEmpty)
+          const Center(child: Text('No items'))
+        else
+          RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.builder(
+              itemCount: _items.length,
+              itemBuilder: (_, i) {
+                final item = _items[i];
+                final depleted = widget.isDepletedOf(item);
+                return ListTile(
+                  title: Text(
+                    widget.nameOf(item),
+                    style: depleted
+                        ? const TextStyle(
+                            decoration: TextDecoration.lineThrough,
+                            color: Colors.grey,
+                          )
+                        : null,
+                  ),
+                  subtitle: Text(widget.subtitleOf(item)),
+                  trailing: depleted
+                      ? const Chip(
+                          label: Text('Depleted',
+                              style: TextStyle(fontSize: 11)),
+                          backgroundColor: Colors.orange,
+                        )
+                      : null,
+                  onTap: () async {
+                    await widget.onTap(item);
+                    _refresh();
+                  },
+                  onLongPress: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Mark as depleted?'),
+                        content: Text(
+                            'This will soft-delete "${widget.nameOf(item)}".'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Deplete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      try {
+                        await widget.onDelete(item);
+                        _refresh();
+                      } on ApiException catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(e.message)),
+                        );
+                      }
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton(
+            heroTag: 'reagent_add_$T',
+            onPressed: () {
+              widget.onAdd();
+            },
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ===========================================================================
+// Storage tab
+// ===========================================================================
+
+class _StorageTab extends StatefulWidget {
+  const _StorageTab({required this.api});
+  final ApiClient api;
+
+  @override
+  State<_StorageTab> createState() => _StorageTabState();
+}
+
+class _StorageTabState extends State<_StorageTab> {
+  List<ReagentStorage> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final items = await widget.api.listStorage();
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _add() async {
+    final nameCtl = TextEditingController();
+    final typeCtl = TextEditingController();
+    final descCtl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('New Storage Location'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameCtl, decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: typeCtl, decoration: const InputDecoration(labelText: 'Location Type', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: descCtl, maxLines: 2, decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder())),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (ok != true || nameCtl.text.trim().isEmpty) return;
+    await widget.api.createStorage({
+      'name': nameCtl.text.trim(),
+      'locationType': typeCtl.text.trim(),
+      'description': descCtl.text.trim(),
+    });
+    _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_items.isEmpty)
+          const Center(child: Text('No storage locations'))
+        else
+          ListView.builder(
+            itemCount: _items.length,
+            itemBuilder: (_, i) {
+              final s = _items[i];
+              return ListTile(
+                leading: const Icon(Icons.warehouse),
+                title: Text(s.name),
+                subtitle: Text('${s.locationType} — ${s.description}'),
+              );
+            },
+          ),
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton(
+            heroTag: 'storage_add',
+            onPressed: _add,
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ===========================================================================
+// Box tab
+// ===========================================================================
+
+class _BoxTab extends StatefulWidget {
+  const _BoxTab({required this.api, required this.q});
+  final ApiClient api;
+  final String q;
+
+  @override
+  State<_BoxTab> createState() => _BoxTabState();
+}
+
+class _BoxTabState extends State<_BoxTab> {
+  List<ReagentBox> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BoxTab old) {
+    super.didUpdateWidget(old);
+    if (old.q != widget.q) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final items = await widget.api.listBoxes(q: widget.q);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _add() async {
+    final boxNoCtl = TextEditingController();
+    final typeCtl = TextEditingController();
+    final ownerCtl = TextEditingController();
+    final labelCtl = TextEditingController();
+    final locCtl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('New Box'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: boxNoCtl, decoration: const InputDecoration(labelText: 'Box No', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: typeCtl, decoration: const InputDecoration(labelText: 'Box Type', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: ownerCtl, decoration: const InputDecoration(labelText: 'Owner', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: labelCtl, decoration: const InputDecoration(labelText: 'Label', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(controller: locCtl, decoration: const InputDecoration(labelText: 'Location', border: OutlineInputBorder())),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.api.createBox({
+      'boxNo': boxNoCtl.text.trim(),
+      'boxType': typeCtl.text.trim(),
+      'owner': ownerCtl.text.trim(),
+      'label': labelCtl.text.trim(),
+      'location': locCtl.text.trim(),
+    });
+    _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_items.isEmpty)
+          const Center(child: Text('No boxes'))
+        else
+          ListView.builder(
+            itemCount: _items.length,
+            itemBuilder: (_, i) {
+              final b = _items[i];
+              return ListTile(
+                leading: const Icon(Icons.inventory_2),
+                title: Text('Box ${b.boxNo} — ${b.label}'),
+                subtitle: Text(
+                    '${b.boxType} | Owner: ${b.owner} | Loc: ${b.location}'),
+              );
+            },
+          ),
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton(
+            heroTag: 'box_add',
+            onPressed: _add,
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+}

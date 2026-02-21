@@ -8,6 +8,7 @@ import '../data/sync_service.dart';
 import '../models/models.dart';
 import 'notifications_screen.dart';
 import 'protocols_screen.dart';
+import 'reagents_screen.dart';
 import 'search_screen.dart';
 import 'templates_screen.dart';
 import 'users_screen.dart';
@@ -364,6 +365,7 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         ),
         label: const Text('Notifications'),
       ),
+      const NavigationRailDestination(icon: Icon(Icons.inventory_2), label: Text('Reagents')),
       const NavigationRailDestination(icon: Icon(Icons.people), label: Text('Users')),
     ];
 
@@ -383,6 +385,9 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         break;
       case 5:
         body = UsersScreen(sync: widget.sync);
+        break;
+      case 6:
+        body = ReagentsScreen(db: widget.db, sync: widget.sync);
         break;
       default:
         body = Scaffold(

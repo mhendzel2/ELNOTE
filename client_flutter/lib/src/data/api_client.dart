@@ -541,6 +541,246 @@ class ApiClient {
     return _decode(response);
   }
 
+  // =========================================================================
+  // Reagents — mutable lab inventory CRUD
+  // =========================================================================
+
+  // --- Storage ---
+  Future<List<ReagentStorage>> listStorage() async {
+    final response = await _get('/v1/reagents/storage');
+    final data = _decode(response);
+    return (data['storage'] as List)
+        .map((e) => ReagentStorage.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentStorage> createStorage(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/storage', body: body);
+    return ReagentStorage.fromJson(_decode(response));
+  }
+
+  Future<void> updateStorage(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/storage/$id', body: body);
+  }
+
+  Future<void> deleteStorage(int id) async {
+    await _request('DELETE', '/v1/reagents/storage/$id', withAuth: true);
+  }
+
+  // --- Boxes ---
+  Future<List<ReagentBox>> listBoxes({String q = ''}) async {
+    final path = q.isEmpty ? '/v1/reagents/boxes' : '/v1/reagents/boxes?q=${Uri.encodeQueryComponent(q)}';
+    final response = await _get(path);
+    final data = _decode(response);
+    return (data['boxes'] as List)
+        .map((e) => ReagentBox.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentBox> createBox(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/boxes', body: body);
+    return ReagentBox.fromJson(_decode(response));
+  }
+
+  Future<void> updateBox(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/boxes/$id', body: body);
+  }
+
+  Future<void> deleteBox(int id) async {
+    await _request('DELETE', '/v1/reagents/boxes/$id', withAuth: true);
+  }
+
+  // --- Antibodies ---
+  Future<List<ReagentAntibody>> listAntibodies({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/antibodies$qs');
+    final data = _decode(response);
+    return (data['antibodies'] as List)
+        .map((e) => ReagentAntibody.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentAntibody> createAntibody(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/antibodies', body: body);
+    return ReagentAntibody.fromJson(_decode(response));
+  }
+
+  Future<void> updateAntibody(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/antibodies/$id', body: body);
+  }
+
+  Future<void> deleteAntibody(int id) async {
+    await _request('DELETE', '/v1/reagents/antibodies/$id', withAuth: true);
+  }
+
+  // --- Cell Lines ---
+  Future<List<ReagentCellLine>> listCellLines({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/cell-lines$qs');
+    final data = _decode(response);
+    return (data['cellLines'] as List)
+        .map((e) => ReagentCellLine.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentCellLine> createCellLine(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/cell-lines', body: body);
+    return ReagentCellLine.fromJson(_decode(response));
+  }
+
+  Future<void> updateCellLine(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/cell-lines/$id', body: body);
+  }
+
+  Future<void> deleteCellLine(int id) async {
+    await _request('DELETE', '/v1/reagents/cell-lines/$id', withAuth: true);
+  }
+
+  // --- Viruses ---
+  Future<List<ReagentVirus>> listViruses({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/viruses$qs');
+    final data = _decode(response);
+    return (data['viruses'] as List)
+        .map((e) => ReagentVirus.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentVirus> createVirus(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/viruses', body: body);
+    return ReagentVirus.fromJson(_decode(response));
+  }
+
+  Future<void> updateVirus(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/viruses/$id', body: body);
+  }
+
+  Future<void> deleteVirus(int id) async {
+    await _request('DELETE', '/v1/reagents/viruses/$id', withAuth: true);
+  }
+
+  // --- DNA ---
+  Future<List<ReagentDNA>> listDNA({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/dna$qs');
+    final data = _decode(response);
+    return (data['dna'] as List)
+        .map((e) => ReagentDNA.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentDNA> createDNA(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/dna', body: body);
+    return ReagentDNA.fromJson(_decode(response));
+  }
+
+  Future<void> updateDNA(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/dna/$id', body: body);
+  }
+
+  Future<void> deleteDNA(int id) async {
+    await _request('DELETE', '/v1/reagents/dna/$id', withAuth: true);
+  }
+
+  // --- Oligos ---
+  Future<List<ReagentOligo>> listOligos({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/oligos$qs');
+    final data = _decode(response);
+    return (data['oligos'] as List)
+        .map((e) => ReagentOligo.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentOligo> createOligo(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/oligos', body: body);
+    return ReagentOligo.fromJson(_decode(response));
+  }
+
+  Future<void> updateOligo(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/oligos/$id', body: body);
+  }
+
+  Future<void> deleteOligo(int id) async {
+    await _request('DELETE', '/v1/reagents/oligos/$id', withAuth: true);
+  }
+
+  // --- Chemicals ---
+  Future<List<ReagentChemical>> listChemicals({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/chemicals$qs');
+    final data = _decode(response);
+    return (data['chemicals'] as List)
+        .map((e) => ReagentChemical.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentChemical> createChemical(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/chemicals', body: body);
+    return ReagentChemical.fromJson(_decode(response));
+  }
+
+  Future<void> updateChemical(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/chemicals/$id', body: body);
+  }
+
+  Future<void> deleteChemical(int id) async {
+    await _request('DELETE', '/v1/reagents/chemicals/$id', withAuth: true);
+  }
+
+  // --- Molecular ---
+  Future<List<ReagentMolecular>> listMolecular({String q = '', bool depleted = false}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (depleted) params.add('depleted=true');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+    final response = await _get('/v1/reagents/molecular$qs');
+    final data = _decode(response);
+    return (data['molecular'] as List)
+        .map((e) => ReagentMolecular.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ReagentMolecular> createMolecular(Map<String, dynamic> body) async {
+    final response = await _post('/v1/reagents/molecular', body: body);
+    return ReagentMolecular.fromJson(_decode(response));
+  }
+
+  Future<void> updateMolecular(int id, Map<String, dynamic> body) async {
+    await _put('/v1/reagents/molecular/$id', body: body);
+  }
+
+  Future<void> deleteMolecular(int id) async {
+    await _request('DELETE', '/v1/reagents/molecular/$id', withAuth: true);
+  }
+
+  // --- Cross-type search ---
+  Future<List<ReagentSearchResult>> searchReagents(String q) async {
+    final response = await _get('/v1/reagents/search?q=${Uri.encodeQueryComponent(q)}');
+    final data = _decode(response);
+    return (data['results'] as List)
+        .map((e) => ReagentSearchResult.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<http.Response> _get(String path, {bool withAuth = true}) {
     return _request('GET', path, withAuth: withAuth);
   }
