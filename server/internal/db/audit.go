@@ -28,6 +28,10 @@ func AppendAuditEvent(
 	if err != nil {
 		return fmt.Errorf("marshal audit payload: %w", err)
 	}
+	payloadJSON, err = canonicalizeAuditPayload(payloadJSON)
+	if err != nil {
+		return fmt.Errorf("canonicalize audit payload: %w", err)
+	}
 
 	var prevHash []byte
 	err = store.QueryRowContext(ctx, `SELECT event_hash FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&prevHash)
@@ -38,7 +42,9 @@ func AppendAuditEvent(
 		prevHash = nil
 	}
 
-	createdAt := time.Now().UTC()
+	// Postgres stores timestamptz at microsecond precision by default.
+	// Truncate pre-hash to keep hash input deterministic across write/read.
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	serialized := fmt.Sprintf(
 		"%s|%s|%s|%s|%s|%s|%s",
 		createdAt.Format(time.RFC3339Nano),
@@ -77,4 +83,12 @@ func AppendAuditEvent(
 	}
 
 	return nil
+}
+
+func canonicalizeAuditPayload(raw []byte) ([]byte, error) {
+	var payload any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return json.Marshal(payload)
 }

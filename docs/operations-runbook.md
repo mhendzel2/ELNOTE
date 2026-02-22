@@ -51,6 +51,14 @@ This runbook defines the minimum operational procedures for incident response, f
    - Verification results
    - Gaps and action items
 
+Automation command:
+
+```bash
+DATABASE_URL='<staging source dsn>' ./scripts/run_pitr_drill.sh
+```
+
+By default this writes a timestamped JSON artifact to `docs/drills/pitr/`.
+
 ## 5) Object Storage Backup Drill (Monthly)
 
 1. Confirm NAS/object-store snapshot or versioning jobs completed successfully.

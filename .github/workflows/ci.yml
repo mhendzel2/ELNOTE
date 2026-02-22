@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: elnote
+          POSTGRES_PASSWORD: elnote
+          POSTGRES_DB: elnote_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elnote -d elnote_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: server
+
+    env:
+      ELNOTE_INTEGRATION: "1"
+      TEST_DATABASE_URL: postgres://elnote:elnote@localhost:5432/elnote_test?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Run Server Tests
+        run: go test ./... -count=1

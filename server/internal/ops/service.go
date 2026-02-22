@@ -146,18 +146,30 @@ func (s *Service) VerifyAuditHashChain(ctx context.Context) (AuditVerificationRe
 			return result, nil
 		}
 
-		serialized := fmt.Sprintf(
-			"%s|%s|%s|%s|%s|%s|%s",
-			createdAt.UTC().Format(time.RFC3339Nano),
+		payloadCanonical, err := canonicalizeAuditPayload(payload)
+		if err != nil {
+			return AuditVerificationResult{}, fmt.Errorf("canonicalize audit payload: %w", err)
+		}
+
+		if !matchesAuditHash(
+			createdAt.UTC().Truncate(time.Microsecond),
 			actorID,
 			eventType,
 			entityType,
 			entityID,
-			string(payload),
-			hex.EncodeToString(prevHash),
-		)
-		computed := sha256.Sum256([]byte(serialized))
-		if !bytes.Equal(eventHash, computed[:]) {
+			payloadCanonical,
+			prevHash,
+			eventHash,
+		) && !matchesLegacyAuditHash(
+			createdAt.UTC().Truncate(time.Microsecond),
+			actorID,
+			eventType,
+			entityType,
+			entityID,
+			payloadCanonical,
+			prevHash,
+			eventHash,
+		) {
 			result.Valid = false
 			result.BrokenAtEventID = eventID
 			result.Message = "audit event_hash checksum mismatch"
@@ -171,6 +183,68 @@ func (s *Service) VerifyAuditHashChain(ctx context.Context) (AuditVerificationRe
 	}
 
 	return result, nil
+}
+
+func matchesAuditHash(
+	createdAt time.Time,
+	actorID string,
+	eventType string,
+	entityType string,
+	entityID string,
+	payloadCanonical []byte,
+	prevHash []byte,
+	expectedEventHash []byte,
+) bool {
+	serialized := fmt.Sprintf(
+		"%s|%s|%s|%s|%s|%s|%s",
+		createdAt.Format(time.RFC3339Nano),
+		actorID,
+		eventType,
+		entityType,
+		entityID,
+		string(payloadCanonical),
+		hex.EncodeToString(prevHash),
+	)
+	computed := sha256.Sum256([]byte(serialized))
+	return bytes.Equal(expectedEventHash, computed[:])
+}
+
+// Legacy audit rows may have been hashed using higher-than-microsecond wall time
+// before Postgres rounded the stored timestamp. Recover by testing the same
+// microsecond bucket with 0..999ns suffix.
+func matchesLegacyAuditHash(
+	createdAt time.Time,
+	actorID string,
+	eventType string,
+	entityType string,
+	entityID string,
+	payloadCanonical []byte,
+	prevHash []byte,
+	expectedEventHash []byte,
+) bool {
+	for ns := 0; ns < 1000; ns++ {
+		if matchesAuditHash(
+			createdAt.Add(time.Duration(ns)*time.Nanosecond),
+			actorID,
+			eventType,
+			entityType,
+			entityID,
+			payloadCanonical,
+			prevHash,
+			expectedEventHash,
+		) {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalizeAuditPayload(raw []byte) ([]byte, error) {
+	var payload any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return json.Marshal(payload)
 }
 
 func (s *Service) ForensicExport(ctx context.Context, experimentID string) (map[string]any, error) {
@@ -299,16 +373,16 @@ func (s *Service) ForensicExport(ctx context.Context, experimentID string) (map[
 	auditEvents := make([]map[string]any, 0)
 	for auditRows.Next() {
 		var (
-			id        int64
-			eventID   string
-			actorID   string
-			eventType string
+			id         int64
+			eventID    string
+			actorID    string
+			eventType  string
 			entityType string
-			entityID  string
-			payload   []byte
-			createdAt time.Time
-			prevHash  string
-			eventHash string
+			entityID   string
+			payload    []byte
+			createdAt  time.Time
+			prevHash   string
+			eventHash  string
 		)
 		if err := auditRows.Scan(&id, &eventID, &actorID, &eventType, &entityType, &entityID, &payload, &createdAt, &prevHash, &eventHash); err != nil {
 			return nil, fmt.Errorf("scan forensic audit row: %w", err)
@@ -316,16 +390,16 @@ func (s *Service) ForensicExport(ctx context.Context, experimentID string) (map[
 		var payloadObj map[string]any
 		_ = json.Unmarshal(payload, &payloadObj)
 		auditEvents = append(auditEvents, map[string]any{
-			"id":         id,
-			"eventId":    eventID,
+			"id":          id,
+			"eventId":     eventID,
 			"actorUserId": actorID,
-			"eventType":  eventType,
-			"entityType": entityType,
-			"entityId":   entityID,
-			"payload":    payloadObj,
-			"createdAt":  createdAt,
-			"prevHash":   prevHash,
-			"eventHash":  eventHash,
+			"eventType":   eventType,
+			"entityType":  entityType,
+			"entityId":    entityID,
+			"payload":     payloadObj,
+			"createdAt":   createdAt,
+			"prevHash":    prevHash,
+			"eventHash":   eventHash,
 		})
 	}
 	if err := auditRows.Err(); err != nil {

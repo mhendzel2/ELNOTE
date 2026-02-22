@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/mjhen/elnote/server/internal/auth"
 	"github.com/mjhen/elnote/server/internal/config"
 	"github.com/mjhen/elnote/server/internal/datavis"
+	internaldb "github.com/mjhen/elnote/server/internal/db"
 	"github.com/mjhen/elnote/server/internal/experiments"
 	"github.com/mjhen/elnote/server/internal/httpx"
 	"github.com/mjhen/elnote/server/internal/middleware"
@@ -3715,6 +3717,10 @@ func (a *App) handleReagentBulkImport(w http.ResponseWriter, r *http.Request, re
 }
 
 func (a *App) Run(ctx context.Context) error {
+	if a.cfg.ReconcileScheduleEnabled {
+		go a.runReconcileScheduler(ctx)
+	}
+
 	srv := &http.Server{
 		Addr:              a.cfg.HTTPAddr,
 		Handler:           a,
@@ -3739,4 +3745,84 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		return fmt.Errorf("http server failed: %w", err)
 	}
+}
+
+func (a *App) runReconcileScheduler(ctx context.Context) {
+	interval := a.cfg.ReconcileScheduleInterval
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+
+	if a.cfg.ReconcileScheduleRunOnStart {
+		a.runReconcileSchedulerTick(ctx)
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.runReconcileSchedulerTick(ctx)
+		}
+	}
+}
+
+func (a *App) runReconcileSchedulerTick(ctx context.Context) {
+	actorUserID, err := a.resolveReconcileSchedulerActorUserID(ctx)
+	if err != nil {
+		log.Printf("WARN: reconcile scheduler actor lookup failed: %v", err)
+		_ = internaldb.AppendAuditEvent(ctx, a.db, "", "attachment.reconcile.scheduler_failed", "attachment_reconcile_run", "", map[string]any{
+			"error":         err.Error(),
+			"reason":        "actor_lookup_failed",
+			"actorEmail":    a.cfg.ReconcileScheduleActorEmail,
+			"scanLimit":     a.cfg.DefaultReconcileScanLimit,
+			"staleAfterSec": int64(a.cfg.DefaultReconcileStaleAfter.Seconds()),
+		})
+		return
+	}
+
+	out, err := a.attachmentService.Reconcile(ctx, attachments.ReconcileInput{
+		ActorUserID: actorUserID,
+		StaleAfter:  a.cfg.DefaultReconcileStaleAfter,
+		Limit:       a.cfg.DefaultReconcileScanLimit,
+	})
+	if err != nil {
+		log.Printf("WARN: reconcile scheduler run failed: %v", err)
+		_ = internaldb.AppendAuditEvent(ctx, a.db, actorUserID, "attachment.reconcile.scheduler_failed", "attachment_reconcile_run", "", map[string]any{
+			"error":         err.Error(),
+			"scanLimit":     a.cfg.DefaultReconcileScanLimit,
+			"staleAfterSec": int64(a.cfg.DefaultReconcileStaleAfter.Seconds()),
+		})
+		return
+	}
+
+	_ = internaldb.AppendAuditEvent(ctx, a.db, actorUserID, "attachment.reconcile.scheduler_succeeded", "attachment_reconcile_run", out.RunID, map[string]any{
+		"runId":                out.RunID,
+		"totalFindingsCreated": out.TotalFindingsCreated,
+		"staleInitiatedCount":  out.StaleInitiatedCount,
+		"missingChecksumCount": out.MissingChecksumCount,
+		"scanLimit":            a.cfg.DefaultReconcileScanLimit,
+		"staleAfterSec":        int64(a.cfg.DefaultReconcileStaleAfter.Seconds()),
+	})
+}
+
+func (a *App) resolveReconcileSchedulerActorUserID(ctx context.Context) (string, error) {
+	actorEmail := strings.TrimSpace(a.cfg.ReconcileScheduleActorEmail)
+	if actorEmail == "" {
+		actorEmail = users.DefaultAdminEmail
+	}
+
+	var userID string
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT id::text
+		FROM users
+		WHERE email = $1
+		LIMIT 1
+	`, actorEmail).Scan(&userID); err != nil {
+		return "", err
+	}
+	return userID, nil
 }

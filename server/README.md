@@ -46,6 +46,10 @@ go run ./cmd/api
 - `ATTACHMENT_DOWNLOAD_URL_TTL` (default `15m`)
 - `RECONCILE_STALE_AFTER` (default `24h`)
 - `RECONCILE_SCAN_LIMIT` (default `500`)
+- `RECONCILE_SCHEDULE_ENABLED` (default `true`)
+- `RECONCILE_SCHEDULE_INTERVAL` (default `24h`)
+- `RECONCILE_SCHEDULE_RUN_ON_STARTUP` (default `false`)
+- `RECONCILE_SCHEDULE_ACTOR_EMAIL` (default `labadmin`)
 
 ## Implemented API Scope
 
@@ -74,3 +78,14 @@ go run ./cmd/api
    - `GET /v1/ops/audit/verify`
    - `POST /v1/ops/attachments/reconcile`
    - `GET /v1/ops/forensic/export?experimentId=<uuid>`
+
+## Automated Restore Drill
+
+Run a logical backup/restore drill and write timestamped evidence:
+
+```bash
+DATABASE_URL='postgres://elnote:elnote@localhost:5432/elnote?sslmode=disable' \
+  ../scripts/run_pitr_drill.sh
+```
+
+Artifacts are written to `docs/drills/pitr/` by default.
