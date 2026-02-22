@@ -25,6 +25,10 @@ type Config struct {
 	AttachmentDownloadURLTTL    time.Duration
 	DefaultReconcileStaleAfter  time.Duration
 	DefaultReconcileScanLimit   int
+	ReconcileScheduleEnabled    bool
+	ReconcileScheduleInterval   time.Duration
+	ReconcileScheduleRunOnStart bool
+	ReconcileScheduleActorEmail string
 	SearchResultLimit           int
 	PreviewMaxSizeBytes         int64
 	NotificationRetentionDays   int
@@ -48,6 +52,10 @@ func Load() (Config, error) {
 		AttachmentDownloadURLTTL:   getDurationEnv("ATTACHMENT_DOWNLOAD_URL_TTL", 15*time.Minute),
 		DefaultReconcileStaleAfter: getDurationEnv("RECONCILE_STALE_AFTER", 24*time.Hour),
 		DefaultReconcileScanLimit:  getIntEnv("RECONCILE_SCAN_LIMIT", 500),
+		ReconcileScheduleEnabled:   getBoolEnv("RECONCILE_SCHEDULE_ENABLED", true),
+		ReconcileScheduleInterval:  getDurationEnv("RECONCILE_SCHEDULE_INTERVAL", 24*time.Hour),
+		ReconcileScheduleRunOnStart: getBoolEnv("RECONCILE_SCHEDULE_RUN_ON_STARTUP", false),
+		ReconcileScheduleActorEmail: getEnv("RECONCILE_SCHEDULE_ACTOR_EMAIL", "labadmin"),
 		SearchResultLimit:         getIntEnv("SEARCH_RESULT_LIMIT", 50),
 		PreviewMaxSizeBytes:       int64(getIntEnv("PREVIEW_MAX_SIZE_BYTES", 10*1024*1024)),
 		NotificationRetentionDays: getIntEnv("NOTIFICATION_RETENTION_DAYS", 90),
@@ -67,6 +75,9 @@ func Load() (Config, error) {
 	}
 	if cfg.DefaultReconcileScanLimit <= 0 {
 		cfg.DefaultReconcileScanLimit = 500
+	}
+	if cfg.ReconcileScheduleInterval <= 0 {
+		cfg.ReconcileScheduleInterval = 24 * time.Hour
 	}
 
 	return cfg, nil
