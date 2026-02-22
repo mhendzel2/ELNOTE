@@ -1,11 +1,10 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:pdf/widgets.dart' as pw;
@@ -779,6 +778,7 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
   final _proposalBodyController = TextEditingController();
 
   bool _loading = true;
+  bool _previewMarkdown = false;
 
   @override
   void initState() {
@@ -1594,7 +1594,7 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
                   const SizedBox(height: 8),
                   const Text('Effective content'),
                   const SizedBox(height: 4),
-                  Text(experiment.effectiveBody),
+                  MarkdownBody(data: experiment.effectiveBody),
                 ],
               ),
             ),
@@ -1718,15 +1718,37 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
 
           // Add addendum
           const SizedBox(height: 12),
-          const Text('Add correction (addendum only)', style: TextStyle(fontWeight: FontWeight.bold)),
+          Row(
+            children: [
+              const Text('Add correction (addendum only)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('Markdown Preview'),
+                selected: _previewMarkdown,
+                onSelected: (v) => setState(() => _previewMarkdown = v),
+              ),
+            ],
+          ),
           TextField(
             controller: _addendumController,
+            onChanged: (_) {
+              if (_previewMarkdown) setState(() {});
+            },
             maxLines: 4,
             decoration: const InputDecoration(
               hintText: 'Describe correction as an immutable addendum',
               alignLabelWithHint: true,
             ),
           ),
+          if (_previewMarkdown && _addendumController.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: MarkdownBody(data: _addendumController.text),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           FilledButton(onPressed: _queueAddendum, child: const Text('Queue Addendum')),
 

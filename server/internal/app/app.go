@@ -683,6 +683,11 @@ func (a *App) handleUpdateProject(w http.ResponseWriter, r *http.Request, projec
 	args = append(args, projectID)
 
 	query := fmt.Sprintf("UPDATE projects SET %s WHERE id = $%d::uuid", strings.Join(sets, ", "), idx)
+	if user.Role != "admin" && user.Role != "owner" {
+		idx++
+		query += fmt.Sprintf(" AND owner_user_id = $%d::uuid", idx)
+		args = append(args, user.ID)
+	}
 	result, err := a.db.ExecContext(r.Context(), query, args...)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "update failed")
@@ -693,7 +698,6 @@ func (a *App) handleUpdateProject(w http.ResponseWriter, r *http.Request, projec
 		httpx.WriteError(w, http.StatusNotFound, "project not found")
 		return
 	}
-	_ = user // access control could be enhanced
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -703,8 +707,15 @@ func (a *App) handleDeleteProject(w http.ResponseWriter, r *http.Request, projec
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if user.Role != "admin" && user.Role != "owner" {
-		httpx.WriteError(w, http.StatusForbidden, "admin or owner required")
+	// Allow project owner OR admin/owner roles.
+	var ownerUserID string
+	err = a.db.QueryRowContext(r.Context(), `SELECT owner_user_id::text FROM projects WHERE id = $1::uuid`, projectID).Scan(&ownerUserID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if user.ID != ownerUserID && user.Role != "admin" && user.Role != "owner" {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -732,7 +743,16 @@ func (a *App) handleListProjectExperiments(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	_ = user
+	var ownerUserID string
+	err = a.db.QueryRowContext(r.Context(), `SELECT owner_user_id::text FROM projects WHERE id = $1::uuid`, projectID).Scan(&ownerUserID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if user.ID != ownerUserID && user.Role != "admin" && user.Role != "owner" {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	rows, err := a.db.QueryContext(r.Context(), `
 		SELECT e.id::text, e.owner_user_id::text, e.title, e.status, e.created_at, e.updated_at,
@@ -1143,8 +1163,8 @@ func (a *App) handleAttachmentComplete(w http.ResponseWriter, r *http.Request, a
 	}
 
 	type request struct {
-		Checksum string `json:"checksum"`
-		SizeBytes int64 `json:"sizeBytes"`
+		Checksum  string `json:"checksum"`
+		SizeBytes int64  `json:"sizeBytes"`
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
