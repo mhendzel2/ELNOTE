@@ -506,6 +506,9 @@ class _ProjectDetailScreen extends StatefulWidget {
 class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
   List<Map<String, dynamic>> _experiments = const [];
   bool _loading = true;
+  String _statusFilter = 'all';
+  String _sortMode = 'updated_desc';
+  int _visibleCount = 25;
 
   @override
   void initState() {
@@ -520,6 +523,7 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
       if (!mounted) return;
       setState(() {
         _experiments = exps;
+        _visibleCount = 25;
         _loading = false;
       });
     } catch (e) {
@@ -593,6 +597,21 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _experiments.where((exp) {
+      if (_statusFilter == 'all') return true;
+      return (exp['status'] as String? ?? 'draft') == _statusFilter;
+    }).toList();
+
+    filtered.sort((a, b) {
+      final aDate = DateTime.tryParse((a['updatedAt'] ?? a['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = DateTime.tryParse((b['updatedAt'] ?? b['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      if (_sortMode == 'updated_asc') return aDate.compareTo(bDate);
+      return bDate.compareTo(aDate);
+    });
+
+    final pageItems = filtered.take(_visibleCount).toList();
+    final hasMore = filtered.length > _visibleCount;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.projectTitle),
@@ -614,15 +633,69 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _experiments.isEmpty
+          : filtered.isEmpty
               ? const Center(child: Text('No experiments in this project'))
               : RefreshIndicator(
                   onRefresh: _refresh,
                   child: ListView.separated(
-                    itemCount: _experiments.length,
+                    itemCount: pageItems.length + 2,
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final exp = _experiments[index];
+                      if (index == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: _statusFilter,
+                                  decoration: const InputDecoration(labelText: 'Filter status'),
+                                  items: const [
+                                    DropdownMenuItem(value: 'all', child: Text('All')),
+                                    DropdownMenuItem(value: 'draft', child: Text('Draft')),
+                                    DropdownMenuItem(value: 'completed', child: Text('Completed')),
+                                  ],
+                                  onChanged: (v) {
+                                    if (v == null) return;
+                                    setState(() {
+                                      _statusFilter = v;
+                                      _visibleCount = 25;
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: _sortMode,
+                                  decoration: const InputDecoration(labelText: 'Sort'),
+                                  items: const [
+                                    DropdownMenuItem(value: 'updated_desc', child: Text('Newest first')),
+                                    DropdownMenuItem(value: 'updated_asc', child: Text('Oldest first')),
+                                  ],
+                                  onChanged: (v) {
+                                    if (v == null) return;
+                                    setState(() => _sortMode = v);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      if (index == pageItems.length + 1) {
+                        if (!hasMore) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: OutlinedButton(
+                            onPressed: () => setState(() => _visibleCount += 25),
+                            child: Text('Load more (${filtered.length - _visibleCount} remaining)'),
+                          ),
+                        );
+                      }
+                      final exp = pageItems[index - 1];
                       final status = exp['status'] as String? ?? 'draft';
                       return ListTile(
                         leading: Icon(
