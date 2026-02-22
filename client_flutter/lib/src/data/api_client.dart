@@ -86,6 +86,11 @@ class ApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> markCompleted(String experimentId) async {
+    final response = await _post('/v1/experiments/$experimentId/complete');
+    return _decode(response);
+  }
+
   Future<List<Map<String, dynamic>>> getHistory(String experimentId) async {
     final response = await _get('/v1/experiments/$experimentId/history');
     final json = _decode(response);
@@ -456,6 +461,26 @@ class ApiClient {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> updateTemplate({
+    required String templateId,
+    required String title,
+    required String description,
+    required String bodyTemplate,
+    List<Map<String, dynamic>>? sections,
+    String? protocolId,
+    List<String>? tags,
+  }) async {
+    final response = await _put('/v1/templates/$templateId', body: {
+      'title': title,
+      'description': description,
+      'bodyTemplate': bodyTemplate,
+      if (sections != null) 'sections': sections,
+      if (protocolId != null) 'protocolId': protocolId,
+      if (tags != null) 'tags': tags,
+    });
+    return _decode(response);
+  }
+
   Future<void> deleteTemplate(String templateId) async {
     await _request('DELETE', '/v1/templates/$templateId', withAuth: true);
   }
@@ -541,6 +566,25 @@ class ApiClient {
       'xColumn': xColumn,
       'yColumns': yColumns,
     });
+    return _decode(response);
+  }
+
+  // =========================================================================
+  // Ops / Admin
+  // =========================================================================
+
+  Future<Map<String, dynamic>> getOpsDashboard() async {
+    final response = await _get('/v1/ops/dashboard');
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> verifyAuditChain() async {
+    final response = await _get('/v1/ops/audit/verify');
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> forensicExport(String experimentId) async {
+    final response = await _get('/v1/ops/forensic/export?experimentId=${Uri.encodeQueryComponent(experimentId)}');
     return _decode(response);
   }
 
