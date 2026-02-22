@@ -663,6 +663,8 @@ class ReagentAntibody {
     required this.antibodyName,
     required this.catalogNo,
     required this.company,
+    required this.lotNumber,
+    required this.expiryDate,
     required this.antibodyClass,
     required this.antigen,
     required this.host,
@@ -681,6 +683,8 @@ class ReagentAntibody {
   final String antibodyName;
   final String catalogNo;
   final String company;
+  final String lotNumber;
+  final String expiryDate;
   final String antibodyClass;
   final String antigen;
   final String host;
@@ -700,6 +704,8 @@ class ReagentAntibody {
       antibodyName: json['antibodyName'] as String? ?? '',
       catalogNo: json['catalogNo'] as String? ?? '',
       company: json['company'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       antibodyClass: json['class'] as String? ?? '',
       antigen: json['antigen'] as String? ?? '',
       host: json['host'] as String? ?? '',
@@ -719,6 +725,8 @@ class ReagentAntibody {
     'antibodyName': antibodyName,
     'catalogNo': catalogNo,
     'company': company,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     'class': antibodyClass,
     'antigen': antigen,
     'host': host,
@@ -736,6 +744,8 @@ class ReagentCellLine {
   ReagentCellLine({
     required this.id,
     required this.cellLineName,
+    required this.lotNumber,
+    required this.expiryDate,
     required this.selection,
     required this.species,
     required this.parentalCell,
@@ -754,6 +764,8 @@ class ReagentCellLine {
 
   final int id;
   final String cellLineName;
+  final String lotNumber;
+  final String expiryDate;
   final String selection;
   final String species;
   final String parentalCell;
@@ -773,6 +785,8 @@ class ReagentCellLine {
     return ReagentCellLine(
       id: (json['id'] as num).toInt(),
       cellLineName: json['cellLineName'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       selection: json['selection'] as String? ?? '',
       species: json['species'] as String? ?? '',
       parentalCell: json['parentalCell'] as String? ?? '',
@@ -792,6 +806,8 @@ class ReagentCellLine {
 
   Map<String, dynamic> toJson() => {
     'cellLineName': cellLineName,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     'selection': selection,
     'species': species,
     'parentalCell': parentalCell,
@@ -812,6 +828,8 @@ class ReagentVirus {
     required this.id,
     required this.virusName,
     required this.virusType,
+    required this.lotNumber,
+    required this.expiryDate,
     this.boxId,
     required this.location,
     required this.owner,
@@ -825,6 +843,8 @@ class ReagentVirus {
   final int id;
   final String virusName;
   final String virusType;
+  final String lotNumber;
+  final String expiryDate;
   final int? boxId;
   final String location;
   final String owner;
@@ -839,6 +859,8 @@ class ReagentVirus {
       id: (json['id'] as num).toInt(),
       virusName: json['virusName'] as String? ?? '',
       virusType: json['virusType'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
       owner: json['owner'] as String? ?? '',
@@ -853,6 +875,8 @@ class ReagentVirus {
   Map<String, dynamic> toJson() => {
     'virusName': virusName,
     'virusType': virusType,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     if (boxId != null) 'boxId': boxId,
     'location': location,
     'owner': owner,
@@ -867,6 +891,8 @@ class ReagentDNA {
     required this.id,
     required this.dnaName,
     required this.dnaType,
+    required this.lotNumber,
+    required this.expiryDate,
     this.boxId,
     required this.location,
     required this.owner,
@@ -880,6 +906,8 @@ class ReagentDNA {
   final int id;
   final String dnaName;
   final String dnaType;
+  final String lotNumber;
+  final String expiryDate;
   final int? boxId;
   final String location;
   final String owner;
@@ -894,6 +922,8 @@ class ReagentDNA {
       id: (json['id'] as num).toInt(),
       dnaName: json['dnaName'] as String? ?? '',
       dnaType: json['dnaType'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
       owner: json['owner'] as String? ?? '',
@@ -908,6 +938,8 @@ class ReagentDNA {
   Map<String, dynamic> toJson() => {
     'dnaName': dnaName,
     'dnaType': dnaType,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     if (boxId != null) 'boxId': boxId,
     'location': location,
     'owner': owner,
@@ -923,6 +955,8 @@ class ReagentOligo {
     required this.oligoName,
     required this.sequence,
     required this.oligoType,
+    required this.lotNumber,
+    required this.expiryDate,
     this.boxId,
     required this.location,
     required this.owner,
@@ -937,6 +971,8 @@ class ReagentOligo {
   final String oligoName;
   final String sequence;
   final String oligoType;
+  final String lotNumber;
+  final String expiryDate;
   final int? boxId;
   final String location;
   final String owner;
@@ -952,6 +988,8 @@ class ReagentOligo {
       oligoName: json['oligoName'] as String? ?? '',
       sequence: json['sequence'] as String? ?? '',
       oligoType: json['oligoType'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
       owner: json['owner'] as String? ?? '',
@@ -967,6 +1005,8 @@ class ReagentOligo {
     'oligoName': oligoName,
     'sequence': sequence,
     'oligoType': oligoType,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     if (boxId != null) 'boxId': boxId,
     'location': location,
     'owner': owner,
@@ -983,6 +1023,8 @@ class ReagentChemical {
     required this.catalogNo,
     required this.company,
     required this.chemType,
+    required this.lotNumber,
+    required this.expiryDate,
     this.boxId,
     required this.location,
     required this.owner,
@@ -998,6 +1040,8 @@ class ReagentChemical {
   final String catalogNo;
   final String company;
   final String chemType;
+  final String lotNumber;
+  final String expiryDate;
   final int? boxId;
   final String location;
   final String owner;
@@ -1014,6 +1058,8 @@ class ReagentChemical {
       catalogNo: json['catalogNo'] as String? ?? '',
       company: json['company'] as String? ?? '',
       chemType: json['chemType'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
       owner: json['owner'] as String? ?? '',
@@ -1030,6 +1076,8 @@ class ReagentChemical {
     'catalogNo': catalogNo,
     'company': company,
     'chemType': chemType,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     if (boxId != null) 'boxId': boxId,
     'location': location,
     'owner': owner,
@@ -1044,6 +1092,8 @@ class ReagentMolecular {
     required this.id,
     required this.mrName,
     required this.mrType,
+    required this.lotNumber,
+    required this.expiryDate,
     this.boxId,
     required this.location,
     required this.position,
@@ -1058,6 +1108,8 @@ class ReagentMolecular {
   final int id;
   final String mrName;
   final String mrType;
+  final String lotNumber;
+  final String expiryDate;
   final int? boxId;
   final String location;
   final String position;
@@ -1073,6 +1125,8 @@ class ReagentMolecular {
       id: (json['id'] as num).toInt(),
       mrName: json['mrName'] as String? ?? '',
       mrType: json['mrType'] as String? ?? '',
+      lotNumber: json['lotNumber'] as String? ?? '',
+      expiryDate: json['expiryDate'] as String? ?? '',
       boxId: (json['boxId'] as num?)?.toInt(),
       location: json['location'] as String? ?? '',
       position: json['position'] as String? ?? '',
@@ -1088,6 +1142,8 @@ class ReagentMolecular {
   Map<String, dynamic> toJson() => {
     'mrName': mrName,
     'mrType': mrType,
+    'lotNumber': lotNumber,
+    'expiryDate': expiryDate,
     if (boxId != null) 'boxId': boxId,
     'location': location,
     'position': position,

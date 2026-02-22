@@ -128,6 +128,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments":
 		a.handleCreateExperiment(w, r)
 		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/clone":
+		a.handleCloneExperiment(w, r)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/from-template":
+		a.handleCreateFromTemplate(w, r)
+		return
 	case strings.HasPrefix(r.URL.Path, "/v1/experiments/"):
 		a.routeExperimentScope(w, r)
 		return
@@ -231,14 +237,6 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(r.URL.Path, "/v1/templates/"):
 		a.routeTemplateScope(w, r)
-		return
-
-	// --- Clone / Create from template ---
-	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/clone":
-		a.handleCloneExperiment(w, r)
-		return
-	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments/from-template":
-		a.handleCreateFromTemplate(w, r)
 		return
 
 	// --- Previews / Thumbnails ---

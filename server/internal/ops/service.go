@@ -286,8 +286,8 @@ func (s *Service) ForensicExport(ctx context.Context, experimentID string) (map[
 				event_hash
 			FROM audit_log
 			WHERE entity_id = $1::uuid
-			   OR payload->>'experimentId' = $1
-			   OR payload->>'sourceExperimentId' = $1
+			   OR payload->>'experimentId' = $1::text
+			   OR payload->>'sourceExperimentId' = $1::text
 			ORDER BY id ASC
 		) q
 	`, experimentID)

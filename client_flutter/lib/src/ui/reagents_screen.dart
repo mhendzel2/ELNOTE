@@ -102,12 +102,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listAntibodies(q: q, depleted: dep),
                 nameOf: (a) => a.antibodyName,
                 subtitleOf: (a) =>
-                    '${a.company} | ${a.catalogNo} | ${a.antigen}',
+                  '${a.company} | ${a.catalogNo} | Lot: ${a.lotNumber} | Exp: ${a.expiryDate}',
                 onAdd: () => _addAntibody(),
                 onTap: (a) => _editAntibody(a),
                 onDelete: (a) => api.deleteAntibody(a.id),
                 isDepletedOf: (a) => a.isDepleted,
-                onImportCsv: () => _importCsv('antibodies', ['antibodyName','catalogNo','company','class','antigen','host','investigator','notes','location','quantity']),
+                onImportCsv: () => _importCsv('antibodies', ['antibodyName','catalogNo','company','lotNumber','expiryDate','class','antigen','host','investigator','notes','location','quantity']),
               ),
               _ReagentListTab<ReagentCellLine>(
                 api: api,
@@ -115,12 +115,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listCellLines(q: q, depleted: dep),
                 nameOf: (c) => c.cellLineName,
-                subtitleOf: (c) => '${c.species} | ${c.medium}',
+                subtitleOf: (c) => '${c.species} | ${c.medium} | Lot: ${c.lotNumber} | Exp: ${c.expiryDate}',
                 onAdd: () => _addCellLine(),
                 onTap: (c) => _editCellLine(c),
                 onDelete: (c) => api.deleteCellLine(c.id),
                 isDepletedOf: (c) => c.isDepleted,
-                onImportCsv: () => _importCsv('cell-lines', ['cellLineName','selection','species','parentalCell','medium','obtainFrom','cellType','location','owner','label','notes']),
+                onImportCsv: () => _importCsv('cell-lines', ['cellLineName','lotNumber','expiryDate','selection','species','parentalCell','medium','obtainFrom','cellType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentVirus>(
                 api: api,
@@ -128,12 +128,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listViruses(q: q, depleted: dep),
                 nameOf: (v) => v.virusName,
-                subtitleOf: (v) => '${v.virusType} | Owner: ${v.owner}',
+                subtitleOf: (v) => '${v.virusType} | Lot: ${v.lotNumber} | Exp: ${v.expiryDate}',
                 onAdd: () => _addVirus(),
                 onTap: (v) => _editVirus(v),
                 onDelete: (v) => api.deleteVirus(v.id),
                 isDepletedOf: (v) => v.isDepleted,
-                onImportCsv: () => _importCsv('viruses', ['virusName','virusType','location','owner','label','notes']),
+                onImportCsv: () => _importCsv('viruses', ['virusName','virusType','lotNumber','expiryDate','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentDNA>(
                 api: api,
@@ -141,12 +141,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 depleted: _showDepleted,
                 fetch: (q, dep) => api.listDNA(q: q, depleted: dep),
                 nameOf: (d) => d.dnaName,
-                subtitleOf: (d) => '${d.dnaType} | Owner: ${d.owner}',
+                subtitleOf: (d) => '${d.dnaType} | Lot: ${d.lotNumber} | Exp: ${d.expiryDate}',
                 onAdd: () => _addDNA(),
                 onTap: (d) => _editDNA(d),
                 onDelete: (d) => api.deleteDNA(d.id),
                 isDepletedOf: (d) => d.isDepleted,
-                onImportCsv: () => _importCsv('dna', ['dnaName','dnaType','location','owner','label','notes']),
+                onImportCsv: () => _importCsv('dna', ['dnaName','dnaType','lotNumber','expiryDate','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentOligo>(
                 api: api,
@@ -155,12 +155,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listOligos(q: q, depleted: dep),
                 nameOf: (o) => o.oligoName,
                 subtitleOf: (o) =>
-                    '${o.oligoType} | ${o.sequence}',
+                  '${o.oligoType} | ${o.sequence} | Lot: ${o.lotNumber} | Exp: ${o.expiryDate}',
                 onAdd: () => _addOligo(),
                 onTap: (o) => _editOligo(o),
                 onDelete: (o) => api.deleteOligo(o.id),
                 isDepletedOf: (o) => o.isDepleted,
-                onImportCsv: () => _importCsv('oligos', ['oligoName','sequence','oligoType','location','owner','label','notes']),
+                onImportCsv: () => _importCsv('oligos', ['oligoName','sequence','oligoType','lotNumber','expiryDate','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentChemical>(
                 api: api,
@@ -169,12 +169,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listChemicals(q: q, depleted: dep),
                 nameOf: (c) => c.chemicalName,
                 subtitleOf: (c) =>
-                    '${c.company} | ${c.catalogNo} | ${c.chemType}',
+                  '${c.company} | ${c.catalogNo} | ${c.chemType} | Lot: ${c.lotNumber} | Exp: ${c.expiryDate}',
                 onAdd: () => _addChemical(),
                 onTap: (c) => _editChemical(c),
                 onDelete: (c) => api.deleteChemical(c.id),
                 isDepletedOf: (c) => c.isDepleted,
-                onImportCsv: () => _importCsv('chemicals', ['chemicalName','catalogNo','company','chemType','location','owner','label','notes']),
+                onImportCsv: () => _importCsv('chemicals', ['chemicalName','catalogNo','company','chemType','lotNumber','expiryDate','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentMolecular>(
                 api: api,
@@ -183,12 +183,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 fetch: (q, dep) => api.listMolecular(q: q, depleted: dep),
                 nameOf: (m) => m.mrName,
                 subtitleOf: (m) =>
-                    '${m.mrType} | Owner: ${m.owner}',
+                  '${m.mrType} | Lot: ${m.lotNumber} | Exp: ${m.expiryDate}',
                 onAdd: () => _addMolecular(),
                 onTap: (m) => _editMolecular(m),
                 onDelete: (m) => api.deleteMolecular(m.id),
                 isDepletedOf: (m) => m.isDepleted,
-                onImportCsv: () => _importCsv('molecular', ['mrName','mrType','location','position','owner','label','notes']),
+                onImportCsv: () => _importCsv('molecular', ['mrName','mrType','lotNumber','expiryDate','location','position','owner','label','notes']),
               ),
             ],
           ),
@@ -203,7 +203,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addAntibody() async {
     final fields = await _showFormDialog('New Antibody', [
-      'antibodyName', 'catalogNo', 'company', 'class', 'antigen',
+      'antibodyName', 'catalogNo', 'company', 'lotNumber', 'expiryDate', 'class', 'antigen',
       'host', 'investigator', 'notes', 'location', 'quantity',
     ]);
     if (fields == null) return;
@@ -213,12 +213,14 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editAntibody(ReagentAntibody a) async {
     final fields = await _showFormDialog('Edit Antibody', [
-      'antibodyName', 'catalogNo', 'company', 'class', 'antigen',
+      'antibodyName', 'catalogNo', 'company', 'lotNumber', 'expiryDate', 'class', 'antigen',
       'host', 'investigator', 'notes', 'location', 'quantity',
     ], initial: {
       'antibodyName': a.antibodyName,
       'catalogNo': a.catalogNo,
       'company': a.company,
+      'lotNumber': a.lotNumber,
+      'expiryDate': a.expiryDate,
       'class': a.antibodyClass,
       'antigen': a.antigen,
       'host': a.host,
@@ -234,7 +236,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addCellLine() async {
     final fields = await _showFormDialog('New Cell Line', [
-      'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
+      'cellLineName', 'lotNumber', 'expiryDate', 'selection', 'species', 'parentalCell', 'medium',
       'obtainFrom', 'cellType', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
@@ -244,10 +246,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editCellLine(ReagentCellLine c) async {
     final fields = await _showFormDialog('Edit Cell Line', [
-      'cellLineName', 'selection', 'species', 'parentalCell', 'medium',
+      'cellLineName', 'lotNumber', 'expiryDate', 'selection', 'species', 'parentalCell', 'medium',
       'obtainFrom', 'cellType', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'cellLineName': c.cellLineName,
+      'lotNumber': c.lotNumber,
+      'expiryDate': c.expiryDate,
       'selection': c.selection,
       'species': c.species,
       'parentalCell': c.parentalCell,
@@ -266,7 +270,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addVirus() async {
     final fields = await _showFormDialog('New Virus', [
-      'virusName', 'virusType', 'notes', 'location', 'owner', 'label',
+      'virusName', 'virusType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createVirus(fields);
@@ -275,10 +279,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editVirus(ReagentVirus v) async {
     final fields = await _showFormDialog('Edit Virus', [
-      'virusName', 'virusType', 'notes', 'location', 'owner', 'label',
+      'virusName', 'virusType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'virusName': v.virusName,
       'virusType': v.virusType,
+      'lotNumber': v.lotNumber,
+      'expiryDate': v.expiryDate,
       'notes': v.notes,
       'location': v.location,
       'owner': v.owner,
@@ -291,7 +297,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addDNA() async {
     final fields = await _showFormDialog('New DNA', [
-      'dnaName', 'dnaType', 'notes', 'location', 'owner', 'label',
+      'dnaName', 'dnaType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createDNA(fields);
@@ -300,10 +306,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editDNA(ReagentDNA d) async {
     final fields = await _showFormDialog('Edit DNA', [
-      'dnaName', 'dnaType', 'notes', 'location', 'owner', 'label',
+      'dnaName', 'dnaType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'dnaName': d.dnaName,
       'dnaType': d.dnaType,
+      'lotNumber': d.lotNumber,
+      'expiryDate': d.expiryDate,
       'notes': d.notes,
       'location': d.location,
       'owner': d.owner,
@@ -316,7 +324,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addOligo() async {
     final fields = await _showFormDialog('New Oligo', [
-      'oligoName', 'sequence', 'oligoType', 'notes', 'location', 'owner', 'label',
+      'oligoName', 'sequence', 'oligoType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createOligo(fields);
@@ -325,11 +333,13 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editOligo(ReagentOligo o) async {
     final fields = await _showFormDialog('Edit Oligo', [
-      'oligoName', 'sequence', 'oligoType', 'notes', 'location', 'owner', 'label',
+      'oligoName', 'sequence', 'oligoType', 'lotNumber', 'expiryDate', 'notes', 'location', 'owner', 'label',
     ], initial: {
       'oligoName': o.oligoName,
       'sequence': o.sequence,
       'oligoType': o.oligoType,
+      'lotNumber': o.lotNumber,
+      'expiryDate': o.expiryDate,
       'notes': o.notes,
       'location': o.location,
       'owner': o.owner,
@@ -342,7 +352,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addChemical() async {
     final fields = await _showFormDialog('New Chemical', [
-      'chemicalName', 'catalogNo', 'company', 'chemType',
+      'chemicalName', 'catalogNo', 'company', 'chemType', 'lotNumber', 'expiryDate',
       'notes', 'location', 'owner', 'label',
     ]);
     if (fields == null) return;
@@ -352,13 +362,15 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editChemical(ReagentChemical c) async {
     final fields = await _showFormDialog('Edit Chemical', [
-      'chemicalName', 'catalogNo', 'company', 'chemType',
+      'chemicalName', 'catalogNo', 'company', 'chemType', 'lotNumber', 'expiryDate',
       'notes', 'location', 'owner', 'label',
     ], initial: {
       'chemicalName': c.chemicalName,
       'catalogNo': c.catalogNo,
       'company': c.company,
       'chemType': c.chemType,
+      'lotNumber': c.lotNumber,
+      'expiryDate': c.expiryDate,
       'notes': c.notes,
       'location': c.location,
       'owner': c.owner,
@@ -371,7 +383,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _addMolecular() async {
     final fields = await _showFormDialog('New Molecular Reagent', [
-      'mrName', 'mrType', 'notes', 'location', 'position', 'owner', 'label',
+      'mrName', 'mrType', 'lotNumber', 'expiryDate', 'notes', 'location', 'position', 'owner', 'label',
     ]);
     if (fields == null) return;
     await api.createMolecular(fields);
@@ -380,10 +392,12 @@ class _ReagentsScreenState extends State<ReagentsScreen>
 
   Future<void> _editMolecular(ReagentMolecular m) async {
     final fields = await _showFormDialog('Edit Molecular Reagent', [
-      'mrName', 'mrType', 'notes', 'location', 'position', 'owner', 'label',
+      'mrName', 'mrType', 'lotNumber', 'expiryDate', 'notes', 'location', 'position', 'owner', 'label',
     ], initial: {
       'mrName': m.mrName,
       'mrType': m.mrType,
+      'lotNumber': m.lotNumber,
+      'expiryDate': m.expiryDate,
       'notes': m.notes,
       'location': m.location,
       'position': m.position,

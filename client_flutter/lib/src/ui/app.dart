@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter/services.dart';
@@ -38,13 +39,38 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
   AuthSession? _session;
   SyncService? _sync;
 
-  final _baseUrlController = TextEditingController(text: 'http://localhost:8080');
+  late final TextEditingController _baseUrlController;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _deviceController = TextEditingController(text: 'tablet-1');
 
   bool _loggingIn = false;
   String? _loginError;
+
+  @override
+  void initState() {
+    super.initState();
+    _baseUrlController = TextEditingController(text: _defaultApiBaseUrl());
+  }
+
+  String _defaultApiBaseUrl() {
+    const override = String.fromEnvironment('API_BASE_URL');
+    if (override.isNotEmpty) {
+      return override;
+    }
+
+    if (!kIsWeb) {
+      return 'http://localhost:8080';
+    }
+
+    final host = Uri.base.host;
+    if (host.isEmpty || host == 'localhost' || host == '127.0.0.1') {
+      return 'http://localhost:8080';
+    }
+
+    final scheme = Uri.base.scheme == 'https' ? 'https' : 'http';
+    return '$scheme://$host:8080';
+  }
 
   @override
   void dispose() {
