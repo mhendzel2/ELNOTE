@@ -92,8 +92,8 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
                 final status = p['status'] as String? ?? 'draft';
                 return ListTile(
                   leading: Icon(
-                    status == 'active' ? Icons.check_circle : Icons.article_outlined,
-                    color: status == 'active' ? Colors.green : null,
+                    status == 'published' ? Icons.check_circle : Icons.article_outlined,
+                    color: status == 'published' ? Colors.green : null,
                   ),
                   title: Text(p['title'] as String? ?? ''),
                   subtitle: Text('Status: ${status.toUpperCase()}'),
@@ -203,10 +203,41 @@ class _ProtocolDetailScreenState extends State<_ProtocolDetailScreen> {
     }
   }
 
+  Future<void> _changeStatus(String status) async {
+    try {
+      await widget.api.updateProtocolStatus(protocolId: widget.protocolId, status: status);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status updated to $status')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final status = (_protocol?['status'] as String? ?? 'draft');
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: _changeStatus,
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'draft', child: Text('Set Draft')),
+              PopupMenuItem(value: 'published', child: Text('Set Published')),
+              PopupMenuItem(value: 'archived', child: Text('Set Archived')),
+            ],
+            tooltip: 'Change protocol status',
+            icon: const Icon(Icons.settings_backup_restore),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(child: Text(status.toUpperCase())),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _publishVersion,
         icon: const Icon(Icons.publish),

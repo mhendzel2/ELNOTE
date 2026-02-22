@@ -939,6 +939,498 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
     }
   }
 
+  Future<void> _markComplete() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null) return;
+    try {
+      await widget.sync.api.markCompleted(experiment!.serverId!);
+      await widget.sync.syncNow();
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Experiment marked complete')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _cloneExperiment() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null) return;
+    final titleCtl = TextEditingController(text: '${experiment!.title} (Clone)');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Clone Experiment'),
+        content: TextField(controller: titleCtl, decoration: const InputDecoration(labelText: 'New title')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clone')),
+        ],
+      ),
+    );
+    if (confirmed != true || titleCtl.text.trim().isEmpty) return;
+    try {
+      await widget.sync.api.cloneExperiment(sourceExperimentId: experiment.serverId!, newTitle: titleCtl.text.trim());
+      await widget.sync.syncNow();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Experiment cloned')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    final experiment = _experiment;
+    if (experiment == null) return;
+    final doc = pw.Document();
+    doc.addPage(
+      pw.MultiPage(
+        build: (ctx) => [
+          pw.Header(level: 0, child: pw.Text(experiment.title)),
+          pw.Text('Status: ${experiment.status.toUpperCase()}'),
+          pw.SizedBox(height: 8),
+          pw.Text('Effective Content', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          pw.Text(experiment.effectiveBody),
+          pw.SizedBox(height: 12),
+          pw.Text('Immutable History', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ..._entries.map((e) => pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('${e.entryType.toUpperCase()} @ ${e.createdAt.toIso8601String()}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.Text(e.body),
+                  ],
+                ),
+              )),
+        ],
+      ),
+    );
+    await Printing.layoutPdf(onLayout: (_) => doc.save());
+  }
+
+  Future<void> _uploadAttachment() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null) return;
+    final file = await FilePicker.platform.pickFiles(withData: true, allowMultiple: false);
+    if (file == null || file.files.isEmpty) return;
+    final picked = file.files.first;
+    final bytes = picked.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not read selected file')));
+      return;
+    }
+
+    final objectKey = '${experiment!.serverId}/${DateTime.now().millisecondsSinceEpoch}_${picked.name}';
+    final mimeType = picked.extension?.toLowerCase() == 'csv' ? 'text/csv' : 'application/octet-stream';
+    try {
+      final initiated = await widget.sync.api.initiateAttachment(
+        experimentId: experiment.serverId!,
+        objectKey: objectKey,
+        sizeBytes: bytes.length,
+        mimeType: mimeType,
+      );
+
+      final uploadUrl = initiated['uploadUrl'] as String;
+      final attachmentId = initiated['attachmentId'] as String;
+      final putResp = await http.put(Uri.parse(uploadUrl), headers: {'Content-Type': mimeType}, body: bytes);
+      if (putResp.statusCode < 200 || putResp.statusCode >= 300) {
+        throw ApiException(putResp.statusCode, 'upload failed');
+      }
+
+      final checksum = sha256.convert(bytes).toString();
+      await widget.sync.api.completeAttachment(
+        attachmentId: attachmentId,
+        checksum: checksum,
+        sizeBytes: bytes.length,
+      );
+
+      await widget.sync.syncNow();
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Attachment uploaded')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+    }
+  }
+
+  Future<void> _downloadAttachment(Map<String, dynamic> attachment) async {
+    final attachmentId = attachment['id'] as String?;
+    if (attachmentId == null || attachmentId.isEmpty) return;
+    try {
+      final resp = await widget.sync.api.downloadAttachment(attachmentId);
+      final url = resp['downloadUrl'] as String? ?? '';
+      if (url.isEmpty) return;
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Download URL'),
+          content: SelectableText(url),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: url));
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('URL copied')));
+                }
+              },
+              child: const Text('Copy URL'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          ],
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _linkProtocol() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null || _protocols.isEmpty) return;
+    String? protocolId = _protocols.first['protocolId'] as String?;
+    final versionCtl = TextEditingController(text: '1');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Link Protocol'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: protocolId,
+                  items: _protocols
+                      .map((p) => DropdownMenuItem<String>(
+                            value: p['protocolId'] as String?,
+                            child: Text((p['title'] as String?) ?? ''),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => protocolId = v),
+                  decoration: const InputDecoration(labelText: 'Protocol'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: versionCtl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Version Number'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Link')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || protocolId == null) return;
+    final versionNum = int.tryParse(versionCtl.text.trim()) ?? 1;
+    try {
+      await widget.sync.api.linkProtocol(
+        experimentId: experiment!.serverId!,
+        protocolId: protocolId!,
+        versionNum: versionNum,
+      );
+      await widget.sync.syncNow();
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _recordDeviation() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null) return;
+    final protocolCtl = TextEditingController();
+    final descCtl = TextEditingController();
+    String severity = 'minor';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Record Deviation'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: protocolCtl,
+                  decoration: const InputDecoration(labelText: 'Protocol ID'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: severity,
+                  items: const [
+                    DropdownMenuItem(value: 'minor', child: Text('Minor')),
+                    DropdownMenuItem(value: 'major', child: Text('Major')),
+                    DropdownMenuItem(value: 'critical', child: Text('Critical')),
+                  ],
+                  onChanged: (v) => setDialogState(() => severity = v ?? 'minor'),
+                  decoration: const InputDecoration(labelText: 'Severity'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descCtl,
+                  maxLines: 4,
+                  decoration: const InputDecoration(labelText: 'Deviation Description'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Record')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || protocolCtl.text.trim().isEmpty || descCtl.text.trim().isEmpty) return;
+    try {
+      await widget.sync.api.recordDeviation(
+        experimentId: experiment!.serverId!,
+        protocolId: protocolCtl.text.trim(),
+        description: descCtl.text.trim(),
+        severity: severity,
+      );
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _parseCsvDataExtract() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null) return;
+    final file = await FilePicker.platform.pickFiles(withData: true, allowMultiple: false, type: FileType.custom, allowedExtensions: ['csv']);
+    if (file == null || file.files.isEmpty || file.files.first.bytes == null) return;
+    final bytes = file.files.first.bytes!;
+    final csvData = utf8.decode(bytes, allowMalformed: true);
+    try {
+      await widget.sync.api.parseCSV(
+        attachmentId: '',
+        experimentId: experiment!.serverId!,
+        csvData: csvData,
+      );
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CSV parsed into data extract')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _createChartConfig() async {
+    final experiment = _experiment;
+    if (experiment?.serverId == null || _dataExtracts.isEmpty) return;
+    String extractId = (_dataExtracts.first['dataExtractId'] ?? '').toString();
+    String chartType = 'line';
+    final titleCtl = TextEditingController();
+    final xCtl = TextEditingController();
+    final yCtl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Create Chart'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: extractId,
+                  decoration: const InputDecoration(labelText: 'Data Extract'),
+                  items: _dataExtracts
+                      .map((de) => DropdownMenuItem<String>(
+                            value: (de['dataExtractId'] ?? '').toString(),
+                            child: Text('Extract ${(de['dataExtractId'] ?? '').toString().substring(0, 8)} • rows ${de['rowCount'] ?? 0}'),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => extractId = v ?? extractId),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: chartType,
+                  decoration: const InputDecoration(labelText: 'Chart Type'),
+                  items: const [
+                    DropdownMenuItem(value: 'line', child: Text('Line')),
+                    DropdownMenuItem(value: 'bar', child: Text('Bar')),
+                    DropdownMenuItem(value: 'scatter', child: Text('Scatter')),
+                  ],
+                  onChanged: (v) => setDialogState(() => chartType = v ?? 'line'),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: titleCtl, decoration: const InputDecoration(labelText: 'Title')),
+                const SizedBox(height: 12),
+                TextField(controller: xCtl, decoration: const InputDecoration(labelText: 'X column header')),
+                const SizedBox(height: 12),
+                TextField(controller: yCtl, decoration: const InputDecoration(labelText: 'Y column header (single)')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || xCtl.text.trim().isEmpty || yCtl.text.trim().isEmpty) return;
+
+    try {
+      await widget.sync.api.createChart(
+        experimentId: experiment!.serverId!,
+        dataExtractId: extractId,
+        chartType: chartType,
+        title: titleCtl.text.trim().isEmpty ? 'Chart' : titleCtl.text.trim(),
+        xColumn: xCtl.text.trim(),
+        yColumns: [yCtl.text.trim()],
+      );
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _showEntryDiff(int index) async {
+    if (index <= 0 || index >= _entries.length) return;
+    final prev = _entries[index - 1];
+    final curr = _entries[index];
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Entry Diff (Previous vs Current)'),
+        content: SizedBox(
+          width: 900,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Previous', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Expanded(child: SingleChildScrollView(child: SelectableText(prev.body))),
+                  ],
+                ),
+              ),
+              const VerticalDivider(width: 20),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Current', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Expanded(child: SingleChildScrollView(child: SelectableText(curr.body))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartPreviewCard(Map<String, dynamic> chart) {
+    final dataExtractId = (chart['dataExtractId'] ?? '').toString();
+    final xColumn = (chart['xColumn'] ?? '').toString();
+    final yColumnsRaw = chart['yColumns'];
+    final yColumns = yColumnsRaw is List ? yColumnsRaw.map((e) => e.toString()).toList() : <String>[];
+    final yColumn = yColumns.isNotEmpty ? yColumns.first : '';
+    final chartType = (chart['chartType'] ?? 'line').toString();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text((chart['title'] ?? 'Chart').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 220,
+              child: FutureBuilder<Map<String, dynamic>>(
+                future: widget.sync.api.getDataExtract(dataExtractId),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final extract = snapshot.data!;
+                  final headers = (extract['columnHeaders'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
+                  final rows = (extract['sampleRows'] as List?)?.cast<List<dynamic>>() ?? const <List<dynamic>>[];
+                  final xIdx = headers.indexOf(xColumn);
+                  final yIdx = headers.indexOf(yColumn);
+                  if (xIdx < 0 || yIdx < 0) {
+                    return const Center(child: Text('Chart columns not found in extract'));
+                  }
+
+                  final spots = <FlSpot>[];
+                  for (final row in rows) {
+                    if (row.length <= yIdx) continue;
+                    final xv = double.tryParse(row[xIdx].toString());
+                    final yv = double.tryParse(row[yIdx].toString());
+                    if (xv != null && yv != null) {
+                      spots.add(FlSpot(xv, yv));
+                    }
+                  }
+                  if (spots.isEmpty) {
+                    return const Center(child: Text('No numeric sample data to plot'));
+                  }
+
+                  if (chartType == 'bar') {
+                    final bars = spots.asMap().entries.map((e) {
+                      return BarChartGroupData(x: e.key, barRods: [BarChartRodData(toY: e.value.y)]);
+                    }).toList();
+                    return BarChart(BarChartData(barGroups: bars));
+                  }
+
+                  final isScatter = chartType == 'scatter';
+                  return LineChart(
+                    LineChartData(
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: spots,
+                          isCurved: chartType == 'line',
+                          barWidth: isScatter ? 0 : 2,
+                          dotData: FlDotData(show: true),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -954,6 +1446,22 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
       appBar: AppBar(
         title: Text(experiment.title),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            onPressed: _exportPdf,
+            tooltip: 'Export / Print PDF',
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy_all),
+            onPressed: _cloneExperiment,
+            tooltip: 'Clone experiment',
+          ),
+          if (experiment.status != 'completed')
+            IconButton(
+              icon: const Icon(Icons.task_alt),
+              onPressed: _markComplete,
+              tooltip: 'Mark complete',
+            ),
           IconButton(
             icon: const Icon(Icons.verified),
             onPressed: _signExperiment,
@@ -979,6 +1487,37 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Status: ${experiment.status}'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _linkProtocol,
+                        icon: const Icon(Icons.link),
+                        label: const Text('Link Protocol'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _recordDeviation,
+                        icon: const Icon(Icons.rule_folder),
+                        label: const Text('Record Deviation'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _uploadAttachment,
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('Upload Attachment'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _parseCsvDataExtract,
+                        icon: const Icon(Icons.table_chart),
+                        label: const Text('Parse CSV'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _createChartConfig,
+                        icon: const Icon(Icons.auto_graph),
+                        label: const Text('Create Chart'),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   const Text('Effective content'),
                   const SizedBox(height: 4),
@@ -1032,15 +1571,77 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
           const SizedBox(height: 12),
           const Text('Immutable history', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
-          ..._entries.map(
-            (entry) => Card(
+          ..._entries.asMap().entries.map(
+            (kv) {
+              final index = kv.key;
+              final entry = kv.value;
+              return Card(
               child: ListTile(
                 title: Text(entry.entryType.toUpperCase()),
                 subtitle: Text(entry.body),
-                trailing: Text('${entry.createdAt.hour}:${entry.createdAt.minute.toString().padLeft(2, '0')}'),
+                trailing: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text('${entry.createdAt.hour}:${entry.createdAt.minute.toString().padLeft(2, '0')}'),
+                    if (index > 0)
+                      IconButton(
+                        icon: const Icon(Icons.compare_arrows),
+                        tooltip: 'Diff with previous entry',
+                        onPressed: () => _showEntryDiff(index),
+                      ),
+                  ],
+                ),
+              ),
+            );
+            },
+          ),
+
+          // Attachments
+          const SizedBox(height: 12),
+          const Text('Attachments', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (_attachments.isEmpty)
+            const Text('No attachments yet')
+          else
+            ..._attachments.map(
+              (att) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.attach_file),
+                  title: Text((att['objectKey'] ?? '').toString()),
+                  subtitle: Text('Status: ${(att['status'] ?? '').toString()} • ${(att['sizeBytes'] ?? 0)} bytes'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.download),
+                    onPressed: () => _downloadAttachment(att),
+                  ),
+                ),
               ),
             ),
-          ),
+
+          // Protocol deviations
+          const SizedBox(height: 12),
+          const Text('Protocol Deviations', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (_deviations.isEmpty)
+            const Text('No deviations recorded')
+          else
+            ..._deviations.map(
+              (d) => Card(
+                child: ListTile(
+                  title: Text((d['deviationType'] ?? d['severity'] ?? 'deviation').toString()),
+                  subtitle: Text((d['rationale'] ?? d['description'] ?? '').toString()),
+                ),
+              ),
+            ),
+
+          // Data Visualization
+          const SizedBox(height: 12),
+          const Text('Data Visualizations', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          if (_charts.isEmpty)
+            const Text('No charts configured yet')
+          else
+            ..._charts.map(_buildChartPreviewCard),
 
           // Add addendum
           const SizedBox(height: 12),

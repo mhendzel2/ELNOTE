@@ -126,6 +126,54 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     }
   }
 
+  Future<void> _editTemplate(Map<String, Object?> template) async {
+    final templateId = template['template_id'] as String;
+    try {
+      final full = await widget.sync.api.getTemplate(templateId);
+      final titleCtl = TextEditingController(text: full['title'] as String? ?? '');
+      final descCtl = TextEditingController(text: full['description'] as String? ?? '');
+      final bodyCtl = TextEditingController(text: full['bodyTemplate'] as String? ?? '');
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Edit Template'),
+          content: SizedBox(
+            width: 540,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: titleCtl, decoration: const InputDecoration(labelText: 'Title')),
+                const SizedBox(height: 12),
+                TextField(controller: descCtl, maxLines: 2, decoration: const InputDecoration(labelText: 'Description')),
+                const SizedBox(height: 12),
+                TextField(controller: bodyCtl, maxLines: 8, decoration: const InputDecoration(labelText: 'Body template')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          ],
+        ),
+      );
+
+      if (confirmed != true || titleCtl.text.trim().isEmpty) return;
+
+      await widget.sync.api.updateTemplate(
+        templateId: templateId,
+        title: titleCtl.text.trim(),
+        description: descCtl.text.trim(),
+        bodyTemplate: bodyCtl.text,
+        sections: const [],
+      );
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -146,10 +194,17 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                     onSelected: (value) {
                       if (value == 'create') {
                         _createExperimentFromTemplate(t);
+                      } else if (value == 'edit') {
+                        _editTemplate(t);
+                      } else if (value == 'delete') {
+                        final id = t['template_id'] as String;
+                        widget.sync.api.deleteTemplate(id).then((_) => _refresh());
                       }
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'create', child: Text('Create experiment from template')),
+                      const PopupMenuItem(value: 'edit', child: Text('Edit template')),
+                      const PopupMenuItem(value: 'delete', child: Text('Delete template')),
                     ],
                   ),
                 );

@@ -204,6 +204,53 @@ class _UsersScreenState extends State<UsersScreen> {
     }
   }
 
+  Future<void> _changePassword(String userId, String email) async {
+    final currentCtl = TextEditingController();
+    final nextCtl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Change Password ($email)'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: currentCtl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Current password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nextCtl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Change')),
+        ],
+      ),
+    );
+    if (confirmed != true || currentCtl.text.isEmpty || nextCtl.text.isEmpty) return;
+    try {
+      await widget.sync.api.changePassword(
+        userId: userId,
+        currentPassword: currentCtl.text,
+        newPassword: nextCtl.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated')));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Color _roleColor(String role) {
     switch (role) {
       case 'owner':
@@ -288,6 +335,11 @@ class _UsersScreenState extends State<UsersScreen> {
                           icon: const Icon(Icons.edit),
                           tooltip: 'Change role',
                           onPressed: () => _changeRole(userId, role),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.password),
+                          tooltip: 'Change password',
+                          onPressed: () => _changePassword(userId, email),
                         ),
                         if (!isDefault)
                           IconButton(
