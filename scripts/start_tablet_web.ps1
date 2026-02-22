@@ -26,6 +26,28 @@ if (-not (Test-Path $buildWebPath)) {
   exit 1
 }
 
+$sqfliteWorkerSource = Join-Path $clientPath "web\sqflite_sw.js"
+$sqfliteWasmSource = Join-Path $clientPath "web\sqlite3.wasm"
+
+if (-not (Test-Path $sqfliteWorkerSource) -or -not (Test-Path $sqfliteWasmSource)) {
+  Write-Host "Setting up sqflite web binaries ..."
+  Push-Location $clientPath
+  try {
+    flutter pub run sqflite_common_ffi_web:setup
+  }
+  finally {
+    Pop-Location
+  }
+}
+
+if (-not (Test-Path $sqfliteWorkerSource) -or -not (Test-Path $sqfliteWasmSource)) {
+  Write-Error "Missing required sqflite web files in '$clientPath\\web' (sqflite_sw.js, sqlite3.wasm)."
+  exit 1
+}
+
+Copy-Item -Path $sqfliteWorkerSource -Destination (Join-Path $buildWebPath "sqflite_sw.js") -Force
+Copy-Item -Path $sqfliteWasmSource -Destination (Join-Path $buildWebPath "sqlite3.wasm") -Force
+
 if ($HostIp -eq "0.0.0.0") {
   Write-Host "Serving tablet web GUI on all interfaces (0.0.0.0:$Port)."
   Write-Host "Open from this PC: http://localhost:$Port"

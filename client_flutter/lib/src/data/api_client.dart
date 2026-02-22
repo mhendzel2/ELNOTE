@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -884,6 +885,47 @@ class ApiClient {
       body: {'items': items},
     );
     return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> importAccessDatabase({
+    required Uint8List fileBytes,
+    required String fileName,
+  }) async {
+    final uri = Uri.parse('$baseUrl/v1/reagents/import-access');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Accept'] = 'application/json';
+
+    final token = accessToken;
+    if (token == null || token.isEmpty) {
+      throw ApiException(401, 'missing access token');
+    }
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: fileName,
+      ),
+    );
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return _decode(response);
+    }
+
+    Map<String, dynamic>? errorBody;
+    try {
+      errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      errorBody = null;
+    }
+    throw ApiException(
+      response.statusCode,
+      errorBody?['error'] as String? ?? 'request failed',
+      body: errorBody,
+    );
   }
 
   // ── Projects ──────────────────────────────────────────────────────────────

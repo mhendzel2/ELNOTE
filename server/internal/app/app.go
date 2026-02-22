@@ -397,6 +397,32 @@ func (a *App) authenticate(r *http.Request) (middleware.AuthUser, error) {
 	return middleware.AuthenticateRequest(r, a.tokens)
 }
 
+func (a *App) authenticateSyncWebSocket(r *http.Request) (middleware.AuthUser, error) {
+	user, err := a.authenticate(r)
+	if err == nil {
+		return user, nil
+	}
+
+	token := strings.TrimSpace(r.URL.Query().Get("access_token"))
+	if token == "" {
+		token = strings.TrimSpace(r.URL.Query().Get("accessToken"))
+	}
+	if token == "" {
+		return middleware.AuthUser{}, err
+	}
+
+	claims, parseErr := a.tokens.ParseAccessToken(token)
+	if parseErr != nil {
+		return middleware.AuthUser{}, parseErr
+	}
+
+	return middleware.AuthUser{
+		ID:       claims.Sub,
+		Role:     claims.Role,
+		DeviceID: claims.DeviceID,
+	}, nil
+}
+
 func (a *App) requireAdmin(r *http.Request) (middleware.AuthUser, bool) {
 	user, err := a.authenticate(r)
 	if err != nil {
@@ -1104,7 +1130,7 @@ func (a *App) handleSyncConflicts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSyncWS(w http.ResponseWriter, r *http.Request) {
-	user, err := a.authenticate(r)
+	user, err := a.authenticateSyncWebSocket(r)
 	if err != nil {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -2716,6 +2742,9 @@ func (a *App) routeReagentScope(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case resource == "import-access" && idStr == "" && r.Method == http.MethodPost:
+		a.handleReagentAccessImport(w, r)
+
 	// --- Storage ---
 	case resource == "storage" && idStr == "" && r.Method == http.MethodGet:
 		a.handleListStorage(w, r)
@@ -3534,6 +3563,46 @@ func (a *App) handleReagentSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (a *App) handleReagentAccessImport(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	const maxUploadBytes = 100 << 20 // 100 MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+
+	payload, err := io.ReadAll(file)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "read file: "+err.Error())
+		return
+	}
+
+	result, err := a.reagentService.ImportAccessDatabase(r.Context(), reagents.AccessImportInput{
+		Filename:  header.Filename,
+		FileBytes: payload,
+		UserID:    user.ID,
+	})
+	if err != nil {
+		a.writeReagentError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (a *App) handleReagentBulkImport(w http.ResponseWriter, r *http.Request, reagentType string) {

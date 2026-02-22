@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'api_client.dart';
 import 'local_database.dart';
@@ -12,7 +12,7 @@ class SyncService {
   final LocalDatabase db;
   final ApiClient api;
 
-  IOWebSocketChannel? _channel;
+  WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _wsSubscription;
   Timer? _reconnectTimer;
   bool _isSyncing = false;
@@ -123,12 +123,15 @@ class SyncService {
     }
 
     final cursor = await db.getCursor();
-    final uri = Uri.parse('${api.websocketUrl}/v1/sync/ws?cursor=$cursor');
-
-    _channel = IOWebSocketChannel.connect(
-      uri,
-      headers: {'Authorization': 'Bearer $token'},
+    final uri = Uri.parse('${api.websocketUrl}/v1/sync/ws').replace(
+      queryParameters: <String, String>{
+        'cursor': '$cursor',
+        // Browsers cannot set arbitrary WS headers, so pass token in query.
+        'access_token': token,
+      },
     );
+
+    _channel = WebSocketChannel.connect(uri);
 
     _wsSubscription = _channel!.stream.listen(
       (dynamic message) async {

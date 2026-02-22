@@ -15,6 +15,7 @@ import '../data/api_client.dart';
 import '../data/local_database.dart';
 import '../data/sync_service.dart';
 import '../models/models.dart';
+import 'data_import_screen.dart';
 import 'notifications_screen.dart';
 import 'ops_dashboard_screen.dart';
 import 'protocols_screen.dart';
@@ -297,6 +298,7 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         label: const Text('Notifications'),
       ),
       const NavigationRailDestination(icon: Icon(Icons.inventory_2), label: Text('Reagents')),
+      const NavigationRailDestination(icon: Icon(Icons.upload_file), label: Text('Data Import')),
       const NavigationRailDestination(icon: Icon(Icons.people), label: Text('Users')),
       const NavigationRailDestination(icon: Icon(Icons.monitor_heart), label: Text('Ops')),
     ];
@@ -319,9 +321,12 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         body = ReagentsScreen(db: widget.db, sync: widget.sync);
         break;
       case 6:
-        body = UsersScreen(sync: widget.sync);
+        body = DataImportScreen(sync: widget.sync);
         break;
       case 7:
+        body = UsersScreen(sync: widget.sync);
+        break;
+      case 8:
         body = OpsDashboardScreen(sync: widget.sync);
         break;
       default:
