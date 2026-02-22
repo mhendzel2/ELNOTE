@@ -26,7 +26,20 @@ if (-not (Test-Path $buildWebPath)) {
   exit 1
 }
 
-Write-Host "Serving tablet web GUI on http://$HostIp`:$Port ..."
+if ($HostIp -eq "0.0.0.0") {
+  Write-Host "Serving tablet web GUI on all interfaces (0.0.0.0:$Port)."
+  Write-Host "Open from this PC: http://localhost:$Port"
+  $lanIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -match '^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.' } |
+    Select-Object -ExpandProperty IPAddress -Unique
+
+  foreach ($lanIp in $lanIps) {
+    Write-Host "Open from tablet: http://$lanIp`:$Port"
+  }
+}
+else {
+  Write-Host "Serving tablet web GUI on http://$HostIp`:$Port ..."
+}
 Push-Location $buildWebPath
 try {
   python -m http.server $Port --bind $HostIp

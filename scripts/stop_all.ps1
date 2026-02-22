@@ -15,15 +15,15 @@ function Stop-ByPort {
     return
   }
 
-  $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-  foreach ($pid in $pids) {
+  $processIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+  foreach ($procId in $processIds) {
     try {
-      $proc = Get-Process -Id $pid -ErrorAction Stop
-      Stop-Process -Id $pid -Force -ErrorAction Stop
-      Write-Host "Stopped PID $pid ($($proc.ProcessName)) on port $Port"
+      $proc = Get-Process -Id $procId -ErrorAction Stop
+      Stop-Process -Id $procId -Force -ErrorAction Stop
+      Write-Host "Stopped PID $procId ($($proc.ProcessName)) on port $Port"
     }
     catch {
-      Write-Host "Failed to stop PID $pid on port $Port: $($_.Exception.Message)"
+      Write-Host "Failed to stop PID $procId on port ${Port}: $($_.Exception.Message)"
     }
   }
 }
