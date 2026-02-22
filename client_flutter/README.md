@@ -58,3 +58,42 @@ flutter build web --release --dart-define=API_BASE_URL=http://<HOST_LAN_IP>:8080
 cd build/web
 python -m http.server 8090 --bind 0.0.0.0
 ```
+
+### Quick Start Scripts (Windows PowerShell)
+
+From repo root, run API and tablet web host in separate terminals:
+
+```powershell
+.\scripts\start_api.ps1
+.\scripts\start_tablet_web.ps1 -HostIp 0.0.0.0 -Port 8090
+```
+
+Optional rebuild before serving web bundle:
+
+```powershell
+.\scripts\start_tablet_web.ps1 -HostIp 0.0.0.0 -Port 8090 -Rebuild
+```
+
+Single command to start both API + web host (Ctrl+C stops both):
+
+```powershell
+.\scripts\start_all.ps1
+```
+
+Optional web rebuild in the same command:
+
+```powershell
+.\scripts\start_all.ps1 -RebuildWeb
+```
+
+Stop default API + web ports:
+
+```powershell
+.\scripts\stop_all.ps1
+```
+
+Stop custom ports:
+
+```powershell
+.\scripts\stop_all.ps1 -Ports 8083,8092
+```
