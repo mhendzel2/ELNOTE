@@ -1,10 +1,22 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../data/api_client.dart';
 import '../data/local_database.dart';
 import '../data/sync_service.dart';
 import '../models/models.dart';
 import 'notifications_screen.dart';
+import 'ops_dashboard_screen.dart';
 import 'protocols_screen.dart';
 import 'reagents_screen.dart';
 import 'search_screen.dart';
@@ -261,6 +273,7 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
       ),
       const NavigationRailDestination(icon: Icon(Icons.inventory_2), label: Text('Reagents')),
       const NavigationRailDestination(icon: Icon(Icons.people), label: Text('Users')),
+      const NavigationRailDestination(icon: Icon(Icons.monitor_heart), label: Text('Ops')),
     ];
 
     Widget body;
@@ -282,6 +295,9 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         break;
       case 6:
         body = UsersScreen(sync: widget.sync);
+        break;
+      case 7:
+        body = OpsDashboardScreen(sync: widget.sync);
         break;
       default:
         body = _ProjectsBody(db: widget.db, sync: widget.sync);
@@ -678,6 +694,11 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
   List<ConflictArtifact> _conflicts = const [];
   List<Map<String, Object?>> _signatures = const [];
   List<Map<String, Object?>> _tags = const [];
+  List<Map<String, dynamic>> _attachments = const [];
+  List<Map<String, dynamic>> _deviations = const [];
+  List<Map<String, dynamic>> _protocols = const [];
+  List<Map<String, dynamic>> _dataExtracts = const [];
+  List<Map<String, dynamic>> _charts = const [];
 
   final _addendumController = TextEditingController();
   final _commentController = TextEditingController();
@@ -734,9 +755,29 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
 
     List<Map<String, Object?>> sigs = const [];
     List<Map<String, Object?>> tags = const [];
+    List<Map<String, dynamic>> attachments = const [];
+    List<Map<String, dynamic>> deviations = const [];
+    List<Map<String, dynamic>> protocols = const [];
+    List<Map<String, dynamic>> extracts = const [];
+    List<Map<String, dynamic>> charts = const [];
     if (experiment.serverId != null && experiment.serverId!.isNotEmpty) {
       sigs = await widget.db.listLocalSignatures(experiment.serverId!);
       tags = await widget.db.listLocalTags(experiment.serverId!);
+      try {
+        attachments = await widget.sync.api.listExperimentAttachments(experiment.serverId!);
+      } catch (_) {}
+      try {
+        deviations = await widget.sync.api.listDeviations(experiment.serverId!);
+      } catch (_) {}
+      try {
+        protocols = await widget.sync.api.listProtocols();
+      } catch (_) {}
+      try {
+        extracts = await widget.sync.api.listDataExtracts(experiment.serverId!);
+      } catch (_) {}
+      try {
+        charts = await widget.sync.api.listCharts(experiment.serverId!);
+      } catch (_) {}
     }
 
     if (!mounted) return;
@@ -748,6 +789,11 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
       _conflicts = conflicts;
       _signatures = sigs;
       _tags = tags;
+      _attachments = attachments;
+      _deviations = deviations;
+      _protocols = protocols;
+      _dataExtracts = extracts;
+      _charts = charts;
       _loading = false;
     });
   }
