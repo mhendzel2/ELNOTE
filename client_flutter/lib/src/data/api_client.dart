@@ -55,11 +55,14 @@ class ApiClient {
   Future<Map<String, dynamic>> createExperiment({
     required String title,
     required String originalBody,
+    String? projectId,
   }) async {
-    final response = await _post(
-      '/v1/experiments',
-      body: {'title': title, 'originalBody': originalBody},
-    );
+    final body = <String, dynamic>{
+      'title': title,
+      'originalBody': originalBody,
+    };
+    if (projectId != null) body['projectId'] = projectId;
+    final response = await _post('/v1/experiments', body: body);
     return _decode(response);
   }
 
@@ -542,6 +545,48 @@ class ApiClient {
   }
 
   // =========================================================================
+  // Attachments
+  // =========================================================================
+
+  Future<List<Map<String, dynamic>>> listExperimentAttachments(String experimentId) async {
+    final response = await _get('/v1/experiments/$experimentId/attachments');
+    final data = _decode(response);
+    return (data['attachments'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> initiateAttachment({
+    required String experimentId,
+    required String objectKey,
+    required int sizeBytes,
+    required String mimeType,
+  }) async {
+    final response = await _post('/v1/attachments/initiate', body: {
+      'experimentId': experimentId,
+      'objectKey': objectKey,
+      'sizeBytes': sizeBytes,
+      'mimeType': mimeType,
+    });
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> completeAttachment({
+    required String attachmentId,
+    required String checksum,
+    required int sizeBytes,
+  }) async {
+    final response = await _post('/v1/attachments/$attachmentId/complete', body: {
+      'checksum': checksum,
+      'sizeBytes': sizeBytes,
+    });
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> downloadAttachment(String attachmentId) async {
+    final response = await _get('/v1/attachments/$attachmentId/download');
+    return _decode(response);
+  }
+
+  // =========================================================================
   // Reagents — mutable lab inventory CRUD
   // =========================================================================
 
@@ -779,6 +824,71 @@ class ApiClient {
     return (data['results'] as List)
         .map((e) => ReagentSearchResult.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Bulk-import reagents from parsed CSV data.
+  /// [reagentType] is one of: storage, boxes, antibodies, cell-lines, viruses,
+  /// dna, oligos, chemicals, molecular.
+  /// [items] is a list of maps matching the JSON field names for that type.
+  /// Returns {imported: int, errors: [String]?}.
+  Future<Map<String, dynamic>> bulkImportReagents(
+    String reagentType,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final response = await _post(
+      '/v1/reagents/$reagentType/import',
+      body: {'items': items},
+    );
+    return _decode(response);
+  }
+
+  // ── Projects ──────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> createProject({
+    required String title,
+    String description = '',
+  }) async {
+    final response = await _post(
+      '/v1/projects',
+      body: {'title': title, 'description': description},
+    );
+    return _decode(response);
+  }
+
+  Future<List<Map<String, dynamic>>> listProjects() async {
+    final response = await _get('/v1/projects');
+    final json = _decode(response);
+    return (json['projects'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> getProject(String projectId) async {
+    final response = await _get('/v1/projects/$projectId');
+    return _decode(response);
+  }
+
+  Future<void> updateProject({
+    required String projectId,
+    String? title,
+    String? description,
+    String? status,
+  }) async {
+    final body = <String, dynamic>{};
+    if (title != null) body['title'] = title;
+    if (description != null) body['description'] = description;
+    if (status != null) body['status'] = status;
+    await _put('/v1/projects/$projectId', body: body);
+  }
+
+  Future<void> deleteProject(String projectId) async {
+    await _request('DELETE', '/v1/projects/$projectId', withAuth: true);
+  }
+
+  Future<List<Map<String, dynamic>>> listProjectExperiments(
+    String projectId,
+  ) async {
+    final response = await _get('/v1/projects/$projectId/experiments');
+    final json = _decode(response);
+    return (json['experiments'] as List).cast<Map<String, dynamic>>();
   }
 
   Future<http.Response> _get(String path, {bool withAuth = true}) {

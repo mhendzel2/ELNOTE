@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../data/api_client.dart';
@@ -103,6 +107,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (a) => _editAntibody(a),
                 onDelete: (a) => api.deleteAntibody(a.id),
                 isDepletedOf: (a) => a.isDepleted,
+                onImportCsv: () => _importCsv('antibodies', ['antibodyName','catalogNo','company','class','antigen','host','investigator','notes','location','quantity']),
               ),
               _ReagentListTab<ReagentCellLine>(
                 api: api,
@@ -115,6 +120,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (c) => _editCellLine(c),
                 onDelete: (c) => api.deleteCellLine(c.id),
                 isDepletedOf: (c) => c.isDepleted,
+                onImportCsv: () => _importCsv('cell-lines', ['cellLineName','selection','species','parentalCell','medium','obtainFrom','cellType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentVirus>(
                 api: api,
@@ -127,6 +133,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (v) => _editVirus(v),
                 onDelete: (v) => api.deleteVirus(v.id),
                 isDepletedOf: (v) => v.isDepleted,
+                onImportCsv: () => _importCsv('viruses', ['virusName','virusType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentDNA>(
                 api: api,
@@ -139,6 +146,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (d) => _editDNA(d),
                 onDelete: (d) => api.deleteDNA(d.id),
                 isDepletedOf: (d) => d.isDepleted,
+                onImportCsv: () => _importCsv('dna', ['dnaName','dnaType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentOligo>(
                 api: api,
@@ -152,6 +160,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (o) => _editOligo(o),
                 onDelete: (o) => api.deleteOligo(o.id),
                 isDepletedOf: (o) => o.isDepleted,
+                onImportCsv: () => _importCsv('oligos', ['oligoName','sequence','oligoType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentChemical>(
                 api: api,
@@ -165,6 +174,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (c) => _editChemical(c),
                 onDelete: (c) => api.deleteChemical(c.id),
                 isDepletedOf: (c) => c.isDepleted,
+                onImportCsv: () => _importCsv('chemicals', ['chemicalName','catalogNo','company','chemType','location','owner','label','notes']),
               ),
               _ReagentListTab<ReagentMolecular>(
                 api: api,
@@ -178,6 +188,7 @@ class _ReagentsScreenState extends State<ReagentsScreen>
                 onTap: (m) => _editMolecular(m),
                 onDelete: (m) => api.deleteMolecular(m.id),
                 isDepletedOf: (m) => m.isDepleted,
+                onImportCsv: () => _importCsv('molecular', ['mrName','mrType','location','position','owner','label','notes']),
               ),
             ],
           ),
@@ -462,6 +473,104 @@ class _ReagentsScreenState extends State<ReagentsScreen>
     }
     return buffer.toString();
   }
+
+  // =========================================================================
+  // CSV import
+  // =========================================================================
+
+  Future<void> _importCsv(String reagentType, List<String> expectedHeaders) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final filePath = result.files.single.path;
+    if (filePath == null) return;
+
+    final csvString = await File(filePath).readAsString();
+    final rows = const CsvToListConverter(eol: '\n').convert(csvString);
+    if (rows.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('CSV file is empty')),
+      );
+      return;
+    }
+
+    // First row = headers
+    final headers = rows.first.map((e) => e.toString().trim()).toList();
+    final dataRows = rows.skip(1).toList();
+
+    if (dataRows.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('CSV has no data rows')),
+      );
+      return;
+    }
+
+    // Convert each row to a map using the headers
+    final items = <Map<String, dynamic>>[];
+    for (final row in dataRows) {
+      final map = <String, dynamic>{};
+      for (int i = 0; i < headers.length && i < row.length; i++) {
+        final val = row[i].toString().trim();
+        // Convert bool-like values
+        if (headers[i] == 'isDepleted') {
+          map[headers[i]] = val.toLowerCase() == 'true' || val == '1';
+        } else if (headers[i] == 'boxId' || headers[i] == 'storageId') {
+          map[headers[i]] = val.isEmpty ? null : int.tryParse(val);
+        } else {
+          map[headers[i]] = val;
+        }
+      }
+      items.add(map);
+    }
+
+    try {
+      final resp = await api.bulkImportReagents(reagentType, items);
+      final imported = resp['imported'] ?? 0;
+      final errors = (resp['errors'] as List?)?.cast<String>() ?? [];
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported $imported items'
+            '${errors.isNotEmpty ? ' (${errors.length} errors)' : ''}',
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      if (errors.isNotEmpty) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Import Errors'),
+            content: SizedBox(
+              width: 500,
+              height: 300,
+              child: SingleChildScrollView(
+                child: Text(errors.join('\n')),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import failed: ${e.message}')),
+      );
+    }
+  }
 }
 
 // ===========================================================================
@@ -480,6 +589,7 @@ class _ReagentListTab<T> extends StatefulWidget {
     required this.onTap,
     required this.onDelete,
     required this.isDepletedOf,
+    this.onImportCsv,
   });
 
   final ApiClient api;
@@ -492,6 +602,7 @@ class _ReagentListTab<T> extends StatefulWidget {
   final Future<void> Function(T) onTap;
   final Future<void> Function(T) onDelete;
   final bool Function(T) isDepletedOf;
+  final VoidCallback? onImportCsv;
 
   @override
   State<_ReagentListTab<T>> createState() => _ReagentListTabState<T>();
@@ -621,12 +732,27 @@ class _ReagentListTabState<T> extends State<_ReagentListTab<T>> {
         Positioned(
           bottom: 16,
           right: 16,
-          child: FloatingActionButton(
-            heroTag: 'reagent_add_$T',
-            onPressed: () {
-              widget.onAdd();
-            },
-            child: const Icon(Icons.add),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.onImportCsv != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FloatingActionButton.small(
+                    heroTag: 'reagent_import_$T',
+                    onPressed: widget.onImportCsv,
+                    tooltip: 'Import CSV',
+                    child: const Icon(Icons.upload_file),
+                  ),
+                ),
+              FloatingActionButton(
+                heroTag: 'reagent_add_$T',
+                onPressed: () {
+                  widget.onAdd();
+                },
+                child: const Icon(Icons.add),
+              ),
+            ],
           ),
         ),
       ],

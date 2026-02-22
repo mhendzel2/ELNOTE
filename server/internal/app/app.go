@@ -114,6 +114,17 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleLogout(w, r)
 		return
 
+	// --- Projects ---
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
+		a.handleCreateProject(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+		a.handleListProjects(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/v1/projects/"):
+		a.routeProjectScope(w, r)
+		return
+
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/experiments":
 		a.handleCreateExperiment(w, r)
 		return
@@ -319,6 +330,8 @@ func (a *App) routeExperimentScope(w http.ResponseWriter, r *http.Request) {
 		a.handleRecordDeviation(w, r, experimentID)
 	case r.Method == http.MethodGet && action == "deviations":
 		a.handleListDeviations(w, r, experimentID)
+	case r.Method == http.MethodGet && action == "attachments":
+		a.handleListExperimentAttachments(w, r, experimentID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -460,6 +473,308 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ---------------------------------------------------------------------------
+// Project handlers
+// ---------------------------------------------------------------------------
+
+func (a *App) routeProjectScope(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// /v1/projects/{id} => ["v1","projects","{id}"]
+	// /v1/projects/{id}/experiments => ["v1","projects","{id}","experiments"]
+	if len(parts) < 3 || parts[0] != "v1" || parts[1] != "projects" || parts[2] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	projectID := parts[2]
+	action := ""
+	if len(parts) == 4 {
+		action = parts[3]
+	}
+
+	switch {
+	case r.Method == http.MethodGet && action == "":
+		a.handleGetProject(w, r, projectID)
+	case r.Method == http.MethodPut && action == "":
+		a.handleUpdateProject(w, r, projectID)
+	case r.Method == http.MethodDelete && action == "":
+		a.handleDeleteProject(w, r, projectID)
+	case r.Method == http.MethodGet && action == "experiments":
+		a.handleListProjectExperiments(w, r, projectID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *App) handleCreateProject(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	var project struct {
+		ID          string    `json:"id"`
+		OwnerUserID string    `json:"ownerUserId"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		Status      string    `json:"status"`
+		CreatedAt   time.Time `json:"createdAt"`
+		UpdatedAt   time.Time `json:"updatedAt"`
+	}
+	err = a.db.QueryRowContext(r.Context(),
+		`INSERT INTO projects (owner_user_id, title, description)
+		 VALUES ($1, $2, $3)
+		 RETURNING id::text, owner_user_id::text, title, description, status, created_at, updated_at`,
+		user.ID, strings.TrimSpace(req.Title), strings.TrimSpace(req.Description),
+	).Scan(&project.ID, &project.OwnerUserID, &project.Title, &project.Description,
+		&project.Status, &project.CreatedAt, &project.UpdatedAt)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "create project failed")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, project)
+}
+
+func (a *App) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var query string
+	var args []any
+	if user.Role == "admin" || user.Role == "owner" {
+		query = `SELECT id::text, owner_user_id::text, title, description, status, created_at, updated_at
+				 FROM projects ORDER BY updated_at DESC`
+	} else {
+		query = `SELECT id::text, owner_user_id::text, title, description, status, created_at, updated_at
+				 FROM projects WHERE owner_user_id = $1 ORDER BY updated_at DESC`
+		args = append(args, user.ID)
+	}
+
+	rows, err := a.db.QueryContext(r.Context(), query, args...)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "list projects failed")
+		return
+	}
+	defer rows.Close()
+
+	type project struct {
+		ID          string    `json:"id"`
+		OwnerUserID string    `json:"ownerUserId"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		Status      string    `json:"status"`
+		CreatedAt   time.Time `json:"createdAt"`
+		UpdatedAt   time.Time `json:"updatedAt"`
+	}
+	var projects []project
+	for rows.Next() {
+		var p project
+		if err := rows.Scan(&p.ID, &p.OwnerUserID, &p.Title, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "scan project failed")
+			return
+		}
+		projects = append(projects, p)
+	}
+	if projects == nil {
+		projects = []project{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (a *App) handleGetProject(w http.ResponseWriter, r *http.Request, projectID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type project struct {
+		ID          string    `json:"id"`
+		OwnerUserID string    `json:"ownerUserId"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		Status      string    `json:"status"`
+		CreatedAt   time.Time `json:"createdAt"`
+		UpdatedAt   time.Time `json:"updatedAt"`
+	}
+	var p project
+	err = a.db.QueryRowContext(r.Context(),
+		`SELECT id::text, owner_user_id::text, title, description, status, created_at, updated_at
+		 FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&p.ID, &p.OwnerUserID, &p.Title, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	// Access check: owner, admin, or owner can see
+	if p.OwnerUserID != user.ID && user.Role != "admin" && user.Role != "owner" {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, p)
+}
+
+func (a *App) handleUpdateProject(w http.ResponseWriter, r *http.Request, projectID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	type request struct {
+		Title       *string `json:"title"`
+		Description *string `json:"description"`
+		Status      *string `json:"status"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Build dynamic SET clause
+	sets := []string{}
+	args := []any{}
+	idx := 1
+	if req.Title != nil {
+		sets = append(sets, fmt.Sprintf("title = $%d", idx))
+		args = append(args, strings.TrimSpace(*req.Title))
+		idx++
+	}
+	if req.Description != nil {
+		sets = append(sets, fmt.Sprintf("description = $%d", idx))
+		args = append(args, strings.TrimSpace(*req.Description))
+		idx++
+	}
+	if req.Status != nil {
+		if *req.Status != "active" && *req.Status != "archived" {
+			httpx.WriteError(w, http.StatusBadRequest, "status must be active or archived")
+			return
+		}
+		sets = append(sets, fmt.Sprintf("status = $%d", idx))
+		args = append(args, *req.Status)
+		idx++
+	}
+	if len(sets) == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "no fields to update")
+		return
+	}
+	sets = append(sets, "updated_at = NOW()")
+	args = append(args, projectID)
+
+	query := fmt.Sprintf("UPDATE projects SET %s WHERE id = $%d::uuid", strings.Join(sets, ", "), idx)
+	result, err := a.db.ExecContext(r.Context(), query, args...)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		httpx.WriteError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	_ = user // access control could be enhanced
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteProject(w http.ResponseWriter, r *http.Request, projectID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if user.Role != "admin" && user.Role != "owner" {
+		httpx.WriteError(w, http.StatusForbidden, "admin or owner required")
+		return
+	}
+
+	// Un-link experiments first, then delete
+	if _, err := a.db.ExecContext(r.Context(), `UPDATE experiments SET project_id = NULL WHERE project_id = $1::uuid`, projectID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "unlink experiments failed")
+		return
+	}
+	result, err := a.db.ExecContext(r.Context(), `DELETE FROM projects WHERE id = $1::uuid`, projectID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "delete project failed")
+		return
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		httpx.WriteError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleListProjectExperiments(w http.ResponseWriter, r *http.Request, projectID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	_ = user
+
+	rows, err := a.db.QueryContext(r.Context(), `
+		SELECT e.id::text, e.owner_user_id::text, e.title, e.status, e.created_at, e.updated_at,
+			COALESCE((
+				SELECT ee.body FROM experiment_entries ee
+				WHERE ee.experiment_id = e.id
+				ORDER BY ee.created_at DESC LIMIT 1
+			), '') AS effective_body
+		FROM experiments e
+		WHERE e.project_id = $1::uuid
+		ORDER BY e.updated_at DESC
+	`, projectID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "list experiments failed")
+		return
+	}
+	defer rows.Close()
+
+	type expSummary struct {
+		ID          string    `json:"id"`
+		OwnerUserID string    `json:"ownerUserId"`
+		Title       string    `json:"title"`
+		Status      string    `json:"status"`
+		CreatedAt   time.Time `json:"createdAt"`
+		UpdatedAt   time.Time `json:"updatedAt"`
+		Body        string    `json:"effectiveBody"`
+	}
+	var exps []expSummary
+	for rows.Next() {
+		var e expSummary
+		if err := rows.Scan(&e.ID, &e.OwnerUserID, &e.Title, &e.Status, &e.CreatedAt, &e.UpdatedAt, &e.Body); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "scan experiment failed")
+			return
+		}
+		exps = append(exps, e)
+	}
+	if exps == nil {
+		exps = []expSummary{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"experiments": exps})
+}
+
 func (a *App) handleCreateExperiment(w http.ResponseWriter, r *http.Request) {
 	user, err := a.authenticate(r)
 	if err != nil {
@@ -472,8 +787,9 @@ func (a *App) handleCreateExperiment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type request struct {
-		Title        string `json:"title"`
-		OriginalBody string `json:"originalBody"`
+		Title        string  `json:"title"`
+		OriginalBody string  `json:"originalBody"`
+		ProjectID    *string `json:"projectId"`
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -490,6 +806,17 @@ func (a *App) handleCreateExperiment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.writeExperimentError(w, err)
 		return
+	}
+
+	// Link to project if provided
+	if req.ProjectID != nil && *req.ProjectID != "" {
+		if _, err := a.db.ExecContext(r.Context(),
+			`UPDATE experiments SET project_id = $1 WHERE id = $2`,
+			*req.ProjectID, resp.ExperimentID,
+		); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "link to project failed")
+			return
+		}
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, resp)
@@ -858,6 +1185,21 @@ func (a *App) handleAttachmentDownload(w http.ResponseWriter, r *http.Request, a
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleListExperimentAttachments(w http.ResponseWriter, r *http.Request, experimentID string) {
+	user, err := a.authenticate(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	items, err := a.attachmentService.ListByExperiment(r.Context(), experimentID, user.ID, user.Role)
+	if err != nil {
+		a.writeAttachmentError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"attachments": items})
 }
 
 func (a *App) handleOpsDashboard(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../data/api_client.dart';
@@ -27,7 +25,6 @@ class ElnoteApplication extends StatefulWidget {
 
 class _ElnoteApplicationState extends State<ElnoteApplication> {
   AuthSession? _session;
-  ApiClient? _api;
   SyncService? _sync;
 
   final _baseUrlController = TextEditingController(text: 'http://localhost:8080');
@@ -73,7 +70,6 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
 
       setState(() {
         _session = session;
-        _api = api;
         _sync = sync;
       });
     } on ApiException catch (e) {
@@ -101,7 +97,6 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
 
     setState(() {
       _session = null;
-      _api = null;
       _sync = null;
       _loginError = null;
     });
@@ -231,24 +226,11 @@ class _WorkspaceScreen extends StatefulWidget {
 class _WorkspaceScreenState extends State<_WorkspaceScreen> {
   int _navIndex = 0;
   int _unreadCount = 0;
-  List<ExperimentRecord> _experiments = const [];
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _refresh();
     _refreshUnread();
-  }
-
-  Future<void> _refresh() async {
-    setState(() => _loading = true);
-    final experiments = await widget.db.listExperiments();
-    if (!mounted) return;
-    setState(() {
-      _experiments = experiments;
-      _loading = false;
-    });
   }
 
   Future<void> _refreshUnread() async {
@@ -259,101 +241,13 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
 
   Future<void> _syncNow() async {
     await widget.sync.syncNow();
-    await _refresh();
     await _refreshUnread();
-  }
-
-  Future<void> _createExperiment() async {
-    final titleController = TextEditingController();
-    final bodyController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Create experiment'),
-        content: SizedBox(
-          width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(labelText: 'Title'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: bodyController,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  labelText: 'Original entry',
-                  alignLabelWithHint: true,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Queue create'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    await widget.db.createLocalExperimentDraft(
-      title: titleController.text,
-      originalBody: bodyController.text,
-    );
-
-    await _syncNow();
-  }
-
-  Widget _buildExperimentList() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_experiments.isEmpty) return const Center(child: Text('No experiments yet'));
-    return ListView.separated(
-      itemCount: _experiments.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final experiment = _experiments[index];
-        return ListTile(
-          title: Text(experiment.title),
-          subtitle: Text(
-            '${experiment.status.toUpperCase()} | ${experiment.effectiveBody}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () async {
-            await Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => _ExperimentDetailScreen(
-                  db: widget.db,
-                  sync: widget.sync,
-                  experimentLocalId: experiment.localId,
-                ),
-              ),
-            );
-            await _refresh();
-          },
-        );
-      },
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final destinations = <NavigationRailDestination>[
-      const NavigationRailDestination(icon: Icon(Icons.science), label: Text('Experiments')),
+      const NavigationRailDestination(icon: Icon(Icons.folder), label: Text('Projects')),
       const NavigationRailDestination(icon: Icon(Icons.article), label: Text('Protocols')),
       const NavigationRailDestination(icon: Icon(Icons.description), label: Text('Templates')),
       const NavigationRailDestination(icon: Icon(Icons.search), label: Text('Search')),
@@ -390,14 +284,7 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         body = UsersScreen(sync: widget.sync);
         break;
       default:
-        body = Scaffold(
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: _createExperiment,
-            icon: const Icon(Icons.add),
-            label: const Text('New Experiment'),
-          ),
-          body: _buildExperimentList(),
-        );
+        body = _ProjectsBody(db: widget.db, sync: widget.sync);
     }
 
     return Scaffold(
@@ -423,6 +310,347 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
           Expanded(child: body),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Projects body (index 0 in NavigationRail)
+// ---------------------------------------------------------------------------
+
+class _ProjectsBody extends StatefulWidget {
+  const _ProjectsBody({required this.db, required this.sync});
+
+  final LocalDatabase db;
+  final SyncService sync;
+
+  @override
+  State<_ProjectsBody> createState() => _ProjectsBodyState();
+}
+
+class _ProjectsBodyState extends State<_ProjectsBody> {
+  List<Map<String, dynamic>> _projects = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final projects = await widget.sync.api.listProjects();
+      if (!mounted) return;
+      setState(() {
+        _projects = projects;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load projects: $e')),
+      );
+    }
+  }
+
+  Future<void> _createProject() async {
+    final titleCtl = TextEditingController();
+    final descCtl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Create Project'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtl,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || titleCtl.text.trim().isEmpty) return;
+
+    try {
+      await widget.sync.api.createProject(
+        title: titleCtl.text.trim(),
+        description: descCtl.text.trim(),
+      );
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createProject,
+        icon: const Icon(Icons.create_new_folder),
+        label: const Text('New Project'),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _projects.isEmpty
+              ? const Center(child: Text('No projects yet'))
+              : RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: ListView.separated(
+                    itemCount: _projects.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final p = _projects[index];
+                      final status = p['status'] as String? ?? '';
+                      return ListTile(
+                        leading: Icon(
+                          status == 'archived' ? Icons.archive : Icons.folder_open,
+                          color: status == 'archived' ? Colors.grey : null,
+                        ),
+                        title: Text(p['title'] as String? ?? '(Untitled)'),
+                        subtitle: Text(
+                          p['description'] as String? ?? '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => _ProjectDetailScreen(
+                                db: widget.db,
+                                sync: widget.sync,
+                                projectId: p['id'] as String,
+                                projectTitle: p['title'] as String? ?? '',
+                              ),
+                            ),
+                          );
+                          await _refresh();
+                        },
+                      );
+                    },
+                  ),
+                ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Project detail – shows experiments within a project
+// ---------------------------------------------------------------------------
+
+class _ProjectDetailScreen extends StatefulWidget {
+  const _ProjectDetailScreen({
+    required this.db,
+    required this.sync,
+    required this.projectId,
+    required this.projectTitle,
+  });
+
+  final LocalDatabase db;
+  final SyncService sync;
+  final String projectId;
+  final String projectTitle;
+
+  @override
+  State<_ProjectDetailScreen> createState() => _ProjectDetailScreenState();
+}
+
+class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
+  List<Map<String, dynamic>> _experiments = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _loading = true);
+    try {
+      final exps = await widget.sync.api.listProjectExperiments(widget.projectId);
+      if (!mounted) return;
+      setState(() {
+        _experiments = exps;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load experiments: $e')),
+      );
+    }
+  }
+
+  Future<void> _createExperiment() async {
+    final titleCtl = TextEditingController();
+    final bodyCtl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Create Experiment'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtl,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: bodyCtl,
+                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Original entry',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || titleCtl.text.trim().isEmpty) return;
+
+    try {
+      await widget.sync.api.createExperiment(
+        title: titleCtl.text.trim(),
+        originalBody: bodyCtl.text.trim(),
+        projectId: widget.projectId,
+      );
+      // Sync so local DB picks up the new experiment
+      await widget.sync.syncNow();
+      await _refresh();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.projectTitle),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              await widget.sync.syncNow();
+              await _refresh();
+            },
+            tooltip: 'Sync now',
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createExperiment,
+        icon: const Icon(Icons.add),
+        label: const Text('New Experiment'),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _experiments.isEmpty
+              ? const Center(child: Text('No experiments in this project'))
+              : RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: ListView.separated(
+                    itemCount: _experiments.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final exp = _experiments[index];
+                      final status = exp['status'] as String? ?? 'draft';
+                      return ListTile(
+                        leading: Icon(
+                          status == 'completed' ? Icons.check_circle : Icons.science,
+                          color: status == 'completed' ? Colors.green : null,
+                        ),
+                        title: Text(exp['title'] as String? ?? '(Untitled)'),
+                        subtitle: Text(
+                          '${status.toUpperCase()} | ${(exp['effectiveBody'] as String? ?? '').replaceAll('\n', ' ')}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          // We need the local ID for _ExperimentDetailScreen
+                          // Try to find by server ID in local DB
+                          final serverId = exp['id'] as String;
+                          final localExps = await widget.db.listExperiments();
+                          final match = localExps.where((e) => e.serverId == serverId).toList();
+                          if (match.isNotEmpty) {
+                            if (!context.mounted) return;
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => _ExperimentDetailScreen(
+                                  db: widget.db,
+                                  sync: widget.sync,
+                                  experimentLocalId: match.first.localId,
+                                ),
+                              ),
+                            );
+                            await _refresh();
+                          } else {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Experiment not yet synced locally. Try syncing first.'),
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
     );
   }
 }

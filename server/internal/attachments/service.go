@@ -319,6 +319,66 @@ func (s *Service) Download(ctx context.Context, in DownloadInput) (DownloadOutpu
 	return out, nil
 }
 
+// ---------------------------------------------------------------------------
+// List attachments for an experiment
+// ---------------------------------------------------------------------------
+
+type AttachmentInfo struct {
+	ID           string     `json:"id"`
+	ExperimentID string     `json:"experimentId"`
+	ObjectKey    string     `json:"objectKey"`
+	SizeBytes    int64      `json:"sizeBytes"`
+	MimeType     string     `json:"mimeType"`
+	Status       string     `json:"status"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	CompletedAt  *time.Time `json:"completedAt,omitempty"`
+}
+
+func (s *Service) ListByExperiment(ctx context.Context, experimentID, viewerUserID, viewerRole string) ([]AttachmentInfo, error) {
+	if strings.TrimSpace(experimentID) == "" {
+		return nil, ErrInvalidInput
+	}
+
+	// Check the viewer has access (owner or admin)
+	var ownerID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT owner_user_id::text FROM experiments WHERE id = $1::uuid`, experimentID,
+	).Scan(&ownerID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("check experiment access: %w", err)
+	}
+	if ownerID != viewerUserID && viewerRole != "admin" {
+		return nil, ErrForbidden
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id::text, experiment_id::text, object_key, size_bytes, mime_type, status, created_at, completed_at
+		FROM attachments
+		WHERE experiment_id = $1::uuid
+		ORDER BY created_at DESC
+	`, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AttachmentInfo
+	for rows.Next() {
+		var a AttachmentInfo
+		if err := rows.Scan(&a.ID, &a.ExperimentID, &a.ObjectKey, &a.SizeBytes, &a.MimeType, &a.Status, &a.CreatedAt, &a.CompletedAt); err != nil {
+			return nil, fmt.Errorf("scan attachment: %w", err)
+		}
+		out = append(out, a)
+	}
+	if out == nil {
+		out = []AttachmentInfo{}
+	}
+	return out, nil
+}
+
 func (s *Service) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileOutput, error) {
 	if strings.TrimSpace(in.ActorUserID) == "" {
 		return ReconcileOutput{}, ErrInvalidInput
