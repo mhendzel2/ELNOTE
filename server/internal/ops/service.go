@@ -26,17 +26,20 @@ var (
 )
 
 type Dashboard struct {
-	NowUTC                      time.Time `json:"nowUtc"`
-	AuthLogin24h                int64     `json:"authLogin24h"`
-	AuthRefresh24h              int64     `json:"authRefresh24h"`
-	AuthLogout24h               int64     `json:"authLogout24h"`
-	SyncEvents24h               int64     `json:"syncEvents24h"`
-	SyncConflicts24h            int64     `json:"syncConflicts24h"`
-	AttachmentInitiated24h      int64     `json:"attachmentInitiated24h"`
-	AttachmentCompleted24h      int64     `json:"attachmentCompleted24h"`
-	ReconcileRuns24h            int64     `json:"reconcileRuns24h"`
-	ReconcileFindingsUnresolved int64     `json:"reconcileFindingsUnresolved"`
-	AuditEvents24h              int64     `json:"auditEvents24h"`
+	NowUTC                               time.Time `json:"nowUtc"`
+	AuthLogin24h                         int64     `json:"authLogin24h"`
+	AuthRefresh24h                       int64     `json:"authRefresh24h"`
+	AuthLogout24h                        int64     `json:"authLogout24h"`
+	SyncEvents24h                        int64     `json:"syncEvents24h"`
+	SyncConflicts24h                     int64     `json:"syncConflicts24h"`
+	AttachmentInitiated24h               int64     `json:"attachmentInitiated24h"`
+	AttachmentCompleted24h               int64     `json:"attachmentCompleted24h"`
+	ReconcileRuns24h                     int64     `json:"reconcileRuns24h"`
+	ReconcileFindingsUnresolved          int64     `json:"reconcileFindingsUnresolved"`
+	ReconcileMissingObjectUnresolved     int64     `json:"reconcileMissingObjectUnresolved"`
+	ReconcileOrphanObjectUnresolved      int64     `json:"reconcileOrphanObjectUnresolved"`
+	ReconcileIntegrityMismatchUnresolved int64     `json:"reconcileIntegrityMismatchUnresolved"`
+	AuditEvents24h                       int64     `json:"auditEvents24h"`
 }
 
 type AuditVerificationResult struct {
@@ -84,6 +87,30 @@ func (s *Service) Dashboard(ctx context.Context) (Dashboard, error) {
 		return Dashboard{}, err
 	}
 	if out.ReconcileFindingsUnresolved, err = countQuery(ctx, s.db, `SELECT COUNT(*) FROM attachment_reconcile_findings WHERE resolved_at IS NULL`); err != nil {
+		return Dashboard{}, err
+	}
+	if out.ReconcileMissingObjectUnresolved, err = countQuery(ctx, s.db, `
+		SELECT COUNT(*)
+		FROM attachment_reconcile_findings
+		WHERE resolved_at IS NULL
+		  AND finding_type = 'completed_missing_object'
+	`); err != nil {
+		return Dashboard{}, err
+	}
+	if out.ReconcileOrphanObjectUnresolved, err = countQuery(ctx, s.db, `
+		SELECT COUNT(*)
+		FROM attachment_reconcile_findings
+		WHERE resolved_at IS NULL
+		  AND finding_type = 'orphan_object'
+	`); err != nil {
+		return Dashboard{}, err
+	}
+	if out.ReconcileIntegrityMismatchUnresolved, err = countQuery(ctx, s.db, `
+		SELECT COUNT(*)
+		FROM attachment_reconcile_findings
+		WHERE resolved_at IS NULL
+		  AND finding_type = 'completed_object_integrity_mismatch'
+	`); err != nil {
 		return Dashboard{}, err
 	}
 	if out.AuditEvents24h, err = countQuery(ctx, s.db, `SELECT COUNT(*) FROM audit_log WHERE created_at >= $1`, since); err != nil {

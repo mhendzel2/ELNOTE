@@ -440,7 +440,7 @@ paths:
 
   /v1/ops/attachments/reconcile:
     post:
-      summary: Run attachment metadata drift reconciliation scan
+      summary: Run attachment metadata/object drift reconciliation scan
       security:
         - bearerAuth: []
       requestBody:
@@ -1001,6 +1001,9 @@ components:
         - attachmentCompleted24h
         - reconcileRuns24h
         - reconcileFindingsUnresolved
+        - reconcileMissingObjectUnresolved
+        - reconcileOrphanObjectUnresolved
+        - reconcileIntegrityMismatchUnresolved
         - auditEvents24h
       properties:
         nowUtc:
@@ -1031,6 +1034,15 @@ components:
           type: integer
           format: int64
         reconcileFindingsUnresolved:
+          type: integer
+          format: int64
+        reconcileMissingObjectUnresolved:
+          type: integer
+          format: int64
+        reconcileOrphanObjectUnresolved:
+          type: integer
+          format: int64
+        reconcileIntegrityMismatchUnresolved:
           type: integer
           format: int64
         auditEvents24h:
@@ -1082,6 +1094,11 @@ components:
         - finishedAt
         - staleInitiatedCount
         - missingChecksumCount
+        - missingObjectCount
+        - orphanObjectCount
+        - integrityMismatchCount
+        - objectProbeErrorCount
+        - objectListingErrorCount
         - totalFindingsCreated
       properties:
         runId:
@@ -1096,6 +1113,16 @@ components:
         staleInitiatedCount:
           type: integer
         missingChecksumCount:
+          type: integer
+        missingObjectCount:
+          type: integer
+        orphanObjectCount:
+          type: integer
+        integrityMismatchCount:
+          type: integer
+        objectProbeErrorCount:
+          type: integer
+        objectListingErrorCount:
           type: integer
         totalFindingsCreated:
           type: integer

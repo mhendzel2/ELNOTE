@@ -187,7 +187,7 @@
 4. [x] Sprint 7 attachment workflow implemented:
    - Metadata-first attachment lifecycle (`initiate`, `complete`, `download`) with signed URL broker service.
    - Owner-only attachment write enforcement and completed-only download semantics for admin review scope.
-   - Attachment reconcile run/findings model for stale initiated records and completed-missing-checksum detection.
+   - Attachment reconcile run/findings model for stale initiated, completed-missing-checksum, missing-object, orphan-object, and integrity-mismatch detection.
 
 ## 11) Sprint 7-9 Execution Status (February 21, 2026)
 
@@ -204,3 +204,9 @@
    - API contract updated in `docs/api-openapi.yaml` for attachments and ops endpoints.
    - Server operator config/docs updated (`server/.env.example`, `server/README.md`) for Sprint 7-9 runtime controls.
    - Runbook baseline added at `docs/operations-runbook.md` (incident response, PITR drill, key rotation).
+4. [x] Post-Sprint hardening follow-through implemented (February 22, 2026):
+   - Mandatory acceptance integration suite runs in CI and blocks merge on failure.
+   - Automated Postgres restore drill command writes timestamped evidence artifacts.
+   - Attachment reconcile scheduler runs automatically on cadence with audit trail.
+   - Object-storage reconcile now includes missing-object/orphan-object/integrity checks with dashboard metrics.
+   - Pilot/UAT release-gate artifact schema and validator added with release workflow enforcement.

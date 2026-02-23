@@ -63,6 +63,7 @@ func New(cfg config.Config, db *sql.DB) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build attachment signer: %w", err)
 	}
+	objectInspector := attachments.NewSignedURLObjectInspector(signer, cfg.ObjectStoreInventoryURL, cfg.ObjectStoreProbeTimeout)
 
 	return &App{
 		cfg:               cfg,
@@ -72,7 +73,7 @@ func New(cfg config.Config, db *sql.DB) (*App, error) {
 		expService:        experiments.NewService(db, syncService),
 		adminService:      admin.NewService(db, syncService),
 		syncService:       syncService,
-		attachmentService: attachments.NewService(db, syncService, signer, cfg.AttachmentUploadURLTTL, cfg.AttachmentDownloadURLTTL),
+		attachmentService: attachments.NewService(db, syncService, signer, objectInspector, cfg.AttachmentUploadURLTTL, cfg.AttachmentDownloadURLTTL),
 		opsService:        ops.NewService(db),
 		protocolService:   protocols.NewService(db, syncService),
 		searchService:     search.NewService(db),
@@ -3800,12 +3801,17 @@ func (a *App) runReconcileSchedulerTick(ctx context.Context) {
 	}
 
 	_ = internaldb.AppendAuditEvent(ctx, a.db, actorUserID, "attachment.reconcile.scheduler_succeeded", "attachment_reconcile_run", out.RunID, map[string]any{
-		"runId":                out.RunID,
-		"totalFindingsCreated": out.TotalFindingsCreated,
-		"staleInitiatedCount":  out.StaleInitiatedCount,
-		"missingChecksumCount": out.MissingChecksumCount,
-		"scanLimit":            a.cfg.DefaultReconcileScanLimit,
-		"staleAfterSec":        int64(a.cfg.DefaultReconcileStaleAfter.Seconds()),
+		"runId":                   out.RunID,
+		"totalFindingsCreated":    out.TotalFindingsCreated,
+		"staleInitiatedCount":     out.StaleInitiatedCount,
+		"missingChecksumCount":    out.MissingChecksumCount,
+		"missingObjectCount":      out.MissingObjectCount,
+		"orphanObjectCount":       out.OrphanObjectCount,
+		"integrityMismatchCount":  out.IntegrityMismatchCount,
+		"objectProbeErrorCount":   out.ObjectProbeErrorCount,
+		"objectListingErrorCount": out.ObjectListingErrorCount,
+		"scanLimit":               a.cfg.DefaultReconcileScanLimit,
+		"staleAfterSec":           int64(a.cfg.DefaultReconcileStaleAfter.Seconds()),
 	})
 }
 

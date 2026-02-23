@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "pilot-uat-go-live-v1",
+  "releaseVersion": "v0.0.0",
+  "signedBy": "",
+  "signedRole": "",
+  "signedAtUtc": "",
+  "signatureRef": "",
+  "checklist": {
+    "uatRepresentativeWorkflows": false,
+    "forensicExportValidated": false,
+    "runbookFinalized": false,
+    "pilotAcceptanceApproved": false,
+    "auditVerifyPassing": false,
+    "reconcileFindingsTriaged": false,
+    "backupDrillCurrent": false,
+    "objectStorageDrillCurrent": false,
+    "keyRotationValidated": false
+  },
+  "evidence": [
+    {
+      "type": "mandatory-acceptance-tests",
+      "description": "Integration acceptance test suite evidence",
+      "path": "server/integration/acceptance_test.go"
+    },
+    {
+      "type": "pitr-drill",
+      "description": "Latest PITR drill artifact",
+      "path": "docs/drills/pitr/REPLACE_WITH_ARTIFACT.json"
+    },
+    {
+      "type": "object-storage-drill",
+      "description": "Latest object-storage drill artifact",
+      "path": "docs/drills/object-storage/REPLACE_WITH_ARTIFACT.json"
+    },
+    {
+      "type": "ops-runbook",
+      "description": "Operational runbook used for pilot",
+      "path": "docs/operations-runbook.md"
+    }
+  ],
+  "notes": ""
+}

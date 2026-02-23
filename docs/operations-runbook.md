@@ -10,7 +10,7 @@ This runbook defines the minimum operational procedures for incident response, f
    - `GET /healthz` returns `200`.
 2. Review ops dashboard:
    - `GET /v1/ops/dashboard` as admin.
-   - Watch for spikes in `syncConflicts24h`, `reconcileFindingsUnresolved`, and auth event anomalies.
+   - Watch for spikes in `syncConflicts24h`, `reconcileFindingsUnresolved`, `reconcileMissingObjectUnresolved`, `reconcileOrphanObjectUnresolved`, and `reconcileIntegrityMismatchUnresolved`.
 3. Verify audit integrity:
    - `GET /v1/ops/audit/verify` as admin.
    - Escalate immediately if response is `409` or `valid=false`.
@@ -66,6 +66,21 @@ By default this writes a timestamped JSON artifact to `docs/drills/pitr/`.
 3. Validate metadata/object consistency:
    - Attachment metadata exists in Postgres.
    - Object is retrievable with signed URL flow.
+4. Record drill evidence:
+   - Start/end timestamps
+   - Sample attachment metadata used
+   - Restore command output
+   - Signed URL retrieval verification results
+
+Automation command:
+
+```bash
+DATABASE_URL='<staging source dsn>' \
+OBJECT_DRILL_ADMIN_PASSWORD='<admin password>' \
+./scripts/run_object_storage_drill.sh
+```
+
+By default this writes a timestamped JSON artifact to `docs/drills/object-storage/`.
 
 ## 6) Key Rotation (Quarterly or on Incident)
 
@@ -90,3 +105,6 @@ By default this writes a timestamped JSON artifact to `docs/drills/pitr/`.
 3. Reconcile findings are triaged and resolved.
 4. Backup restore drill evidence is current.
 5. Key rotation procedure validated in non-production.
+6. Completed release-gate artifact exists at `docs/release-gates/pilot-uat-go-live.json`.
+7. Release-gate validation passes:
+   - `./scripts/verify_go_live_gate.sh`

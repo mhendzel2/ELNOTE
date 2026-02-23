@@ -302,6 +302,75 @@ func TestMandatoryAcceptanceSuite(t *testing.T) {
 		}
 	})
 
+	t.Run("AttachmentReconcileObjectDrift", func(t *testing.T) {
+		exp := env.createExperiment(ownerATokenDeviceA, "Attachment drift", "original")
+		experimentID := getString(t, exp, "experimentId")
+
+		createCompletedAttachment := func(objectKey, checksum string, sizeBytes int64) string {
+			t.Helper()
+			status, _, _, initiateResp := env.doJSON(http.MethodPost, "/v1/attachments/initiate", ownerATokenDeviceA, map[string]any{
+				"experimentId": experimentID,
+				"objectKey":    objectKey,
+				"sizeBytes":    sizeBytes,
+				"mimeType":     "application/octet-stream",
+			})
+			if status != http.StatusCreated {
+				t.Fatalf("attachment initiate failed: status=%d body=%v", status, initiateResp)
+			}
+			attachmentID := getString(t, asMap(t, initiateResp), "attachmentId")
+
+			status, _, _, completeResp := env.doJSON(http.MethodPost, "/v1/attachments/"+attachmentID+"/complete", ownerATokenDeviceA, map[string]any{
+				"checksum":  checksum,
+				"sizeBytes": sizeBytes,
+			})
+			if status != http.StatusOK {
+				t.Fatalf("attachment complete failed: status=%d body=%v", status, completeResp)
+			}
+			return attachmentID
+		}
+
+		_ = createCompletedAttachment("drift/missing-object.bin", "missing-expected", 5)
+		_ = createCompletedAttachment("drift/integrity-mismatch.bin", "expected-checksum", 3)
+		env.objectStore.putObject("drift/integrity-mismatch.bin", []byte("mismatch-object"), "observed-checksum")
+		env.objectStore.putObject("drift/orphan-object.bin", []byte("orphan"), "orphan-checksum")
+
+		status, _, _, reconcileResp := env.doJSON(http.MethodPost, "/v1/ops/attachments/reconcile", adminToken, map[string]any{
+			"scanLimit": 100,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("attachment reconcile failed: status=%d body=%v", status, reconcileResp)
+		}
+		reconcile := asMap(t, reconcileResp)
+
+		missingObjectCount := int(reconcile["missingObjectCount"].(float64))
+		orphanObjectCount := int(reconcile["orphanObjectCount"].(float64))
+		integrityMismatchCount := int(reconcile["integrityMismatchCount"].(float64))
+		if missingObjectCount < 1 {
+			t.Fatalf("expected missing object findings, got %v", reconcile)
+		}
+		if orphanObjectCount < 1 {
+			t.Fatalf("expected orphan object findings, got %v", reconcile)
+		}
+		if integrityMismatchCount < 1 {
+			t.Fatalf("expected integrity mismatch findings, got %v", reconcile)
+		}
+
+		status, _, _, dashboardResp := env.doJSON(http.MethodGet, "/v1/ops/dashboard", adminToken, nil)
+		if status != http.StatusOK {
+			t.Fatalf("ops dashboard failed: status=%d body=%v", status, dashboardResp)
+		}
+		dashboard := asMap(t, dashboardResp)
+		if dashboard["reconcileMissingObjectUnresolved"].(float64) < 1 {
+			t.Fatalf("expected missing-object metric in dashboard, got %v", dashboard)
+		}
+		if dashboard["reconcileOrphanObjectUnresolved"].(float64) < 1 {
+			t.Fatalf("expected orphan-object metric in dashboard, got %v", dashboard)
+		}
+		if dashboard["reconcileIntegrityMismatchUnresolved"].(float64) < 1 {
+			t.Fatalf("expected integrity-mismatch metric in dashboard, got %v", dashboard)
+		}
+	})
+
 	t.Run("ForensicAuditHashChain", func(t *testing.T) {
 		status, _, _, verifyResp := env.doJSON(http.MethodGet, "/v1/ops/audit/verify", adminToken, nil)
 		if status != http.StatusOK {

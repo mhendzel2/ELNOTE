@@ -3,6 +3,7 @@ package attachments
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,10 +19,21 @@ var (
 	ErrInvalidInput = errors.New("invalid input")
 )
 
+const (
+	findingTypeInitiatedStale             = "initiated_stale"
+	findingTypeCompletedMissingChecksum   = "completed_missing_checksum"
+	findingTypeCompletedMissingObject     = "completed_missing_object"
+	findingTypeOrphanObject               = "orphan_object"
+	findingTypeCompletedIntegrityMismatch = "completed_object_integrity_mismatch"
+	findingTypeObjectProbeFailed          = "object_probe_failed"
+	findingTypeObjectListingFailed        = "object_listing_failed"
+)
+
 type Service struct {
 	db             *sql.DB
 	sync           *syncer.Service
 	signer         URLSigner
+	inspector      ObjectStoreInspector
 	uploadURLTTL   time.Duration
 	downloadURLTTL time.Duration
 }
@@ -78,25 +90,34 @@ type ReconcileInput struct {
 }
 
 type ReconcileOutput struct {
-	RunID                    string    `json:"runId"`
-	StartedAt                time.Time `json:"startedAt"`
-	FinishedAt               time.Time `json:"finishedAt"`
-	StaleInitiatedCount      int       `json:"staleInitiatedCount"`
-	MissingChecksumCount     int       `json:"missingChecksumCount"`
-	TotalFindingsCreated     int       `json:"totalFindingsCreated"`
+	RunID                   string    `json:"runId"`
+	StartedAt               time.Time `json:"startedAt"`
+	FinishedAt              time.Time `json:"finishedAt"`
+	StaleInitiatedCount     int       `json:"staleInitiatedCount"`
+	MissingChecksumCount    int       `json:"missingChecksumCount"`
+	MissingObjectCount      int       `json:"missingObjectCount"`
+	OrphanObjectCount       int       `json:"orphanObjectCount"`
+	IntegrityMismatchCount  int       `json:"integrityMismatchCount"`
+	ObjectProbeErrorCount   int       `json:"objectProbeErrorCount"`
+	ObjectListingErrorCount int       `json:"objectListingErrorCount"`
+	TotalFindingsCreated    int       `json:"totalFindingsCreated"`
 }
 
-func NewService(db *sql.DB, syncService *syncer.Service, signer URLSigner, uploadTTL, downloadTTL time.Duration) *Service {
+func NewService(db *sql.DB, syncService *syncer.Service, signer URLSigner, inspector ObjectStoreInspector, uploadTTL, downloadTTL time.Duration) *Service {
 	if uploadTTL <= 0 {
 		uploadTTL = 15 * time.Minute
 	}
 	if downloadTTL <= 0 {
 		downloadTTL = 15 * time.Minute
 	}
+	if inspector == nil {
+		inspector = NewSignedURLObjectInspector(signer, "", 10*time.Second)
+	}
 	return &Service{
 		db:             db,
 		sync:           syncService,
 		signer:         signer,
+		inspector:      inspector,
 		uploadURLTTL:   uploadTTL,
 		downloadURLTTL: downloadTTL,
 	}
@@ -279,8 +300,8 @@ func (s *Service) Download(ctx context.Context, in DownloadInput) (DownloadOutpu
 	}
 
 	var (
-		out            DownloadOutput
-		experimentOwner string
+		out              DownloadOutput
+		experimentOwner  string
 		experimentStatus string
 		attachmentStatus string
 	)
@@ -430,32 +451,30 @@ func (s *Service) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileOu
 	if err != nil {
 		return ReconcileOutput{}, fmt.Errorf("query stale initiated attachments: %w", err)
 	}
-	defer staleRows.Close()
-
+	var staleAttachmentIDs []string
 	for staleRows.Next() {
 		var attachmentID string
 		if err := staleRows.Scan(&attachmentID); err != nil {
+			staleRows.Close()
 			return ReconcileOutput{}, fmt.Errorf("scan stale initiated attachment: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO attachment_reconcile_findings (
-				run_id,
-				attachment_id,
-				finding_type,
-				details
-			) VALUES (
-				$1::uuid,
-				$2::uuid,
-				'initiated_stale',
-				$3::jsonb
-			)
-		`, out.RunID, attachmentID, fmt.Sprintf(`{"cutoff":"%s"}`, staleCutoff.Format(time.RFC3339Nano))); err != nil {
+		staleAttachmentIDs = append(staleAttachmentIDs, attachmentID)
+	}
+	if err := staleRows.Err(); err != nil {
+		staleRows.Close()
+		return ReconcileOutput{}, fmt.Errorf("iterate stale initiated attachments: %w", err)
+	}
+	if err := staleRows.Close(); err != nil {
+		return ReconcileOutput{}, fmt.Errorf("close stale initiated attachments rows: %w", err)
+	}
+
+	for _, attachmentID := range staleAttachmentIDs {
+		if err := insertReconcileFinding(ctx, tx, out.RunID, &attachmentID, findingTypeInitiatedStale, map[string]any{
+			"cutoff": staleCutoff.Format(time.RFC3339Nano),
+		}); err != nil {
 			return ReconcileOutput{}, fmt.Errorf("insert stale initiated finding: %w", err)
 		}
 		out.StaleInitiatedCount++
-	}
-	if err := staleRows.Err(); err != nil {
-		return ReconcileOutput{}, fmt.Errorf("iterate stale initiated attachments: %w", err)
 	}
 
 	missingRows, err := tx.QueryContext(ctx, `
@@ -469,35 +488,165 @@ func (s *Service) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileOu
 	if err != nil {
 		return ReconcileOutput{}, fmt.Errorf("query missing checksum attachments: %w", err)
 	}
-	defer missingRows.Close()
-
+	var missingChecksumAttachmentIDs []string
 	for missingRows.Next() {
 		var attachmentID string
 		if err := missingRows.Scan(&attachmentID); err != nil {
+			missingRows.Close()
 			return ReconcileOutput{}, fmt.Errorf("scan missing checksum attachment: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO attachment_reconcile_findings (
-				run_id,
-				attachment_id,
-				finding_type,
-				details
-			) VALUES (
-				$1::uuid,
-				$2::uuid,
-				'completed_missing_checksum',
-				'{}'::jsonb
-			)
-		`, out.RunID, attachmentID); err != nil {
+		missingChecksumAttachmentIDs = append(missingChecksumAttachmentIDs, attachmentID)
+	}
+	if err := missingRows.Err(); err != nil {
+		missingRows.Close()
+		return ReconcileOutput{}, fmt.Errorf("iterate missing checksum attachments: %w", err)
+	}
+	if err := missingRows.Close(); err != nil {
+		return ReconcileOutput{}, fmt.Errorf("close missing checksum rows: %w", err)
+	}
+
+	for _, attachmentID := range missingChecksumAttachmentIDs {
+		if err := insertReconcileFinding(ctx, tx, out.RunID, &attachmentID, findingTypeCompletedMissingChecksum, map[string]any{}); err != nil {
 			return ReconcileOutput{}, fmt.Errorf("insert missing checksum finding: %w", err)
 		}
 		out.MissingChecksumCount++
 	}
-	if err := missingRows.Err(); err != nil {
-		return ReconcileOutput{}, fmt.Errorf("iterate missing checksum attachments: %w", err)
+
+	completedRows, err := tx.QueryContext(ctx, `
+		SELECT id::text, object_key, size_bytes, COALESCE(checksum, '')
+		FROM attachments
+		WHERE status = 'completed'
+		ORDER BY completed_at DESC NULLS LAST
+		LIMIT $1
+	`, in.Limit)
+	if err != nil {
+		return ReconcileOutput{}, fmt.Errorf("query completed attachments for object drift: %w", err)
+	}
+	type completedAttachment struct {
+		id        string
+		objectKey string
+		sizeBytes int64
+		checksum  string
+	}
+	var completedAttachments []completedAttachment
+	for completedRows.Next() {
+		var item completedAttachment
+		if err := completedRows.Scan(&item.id, &item.objectKey, &item.sizeBytes, &item.checksum); err != nil {
+			completedRows.Close()
+			return ReconcileOutput{}, fmt.Errorf("scan completed attachment for object drift: %w", err)
+		}
+		completedAttachments = append(completedAttachments, item)
+	}
+	if err := completedRows.Err(); err != nil {
+		completedRows.Close()
+		return ReconcileOutput{}, fmt.Errorf("iterate completed attachments for object drift: %w", err)
+	}
+	if err := completedRows.Close(); err != nil {
+		return ReconcileOutput{}, fmt.Errorf("close completed attachment rows: %w", err)
 	}
 
-	out.TotalFindingsCreated = out.StaleInitiatedCount + out.MissingChecksumCount
+	for _, item := range completedAttachments {
+		if s.inspector == nil {
+			continue
+		}
+
+		probe, err := s.inspector.Probe(ctx, item.objectKey)
+		if err != nil {
+			attachmentID := item.id
+			if err := insertReconcileFinding(ctx, tx, out.RunID, &attachmentID, findingTypeObjectProbeFailed, map[string]any{
+				"objectKey": item.objectKey,
+				"error":     err.Error(),
+			}); err != nil {
+				return ReconcileOutput{}, fmt.Errorf("insert object probe failure finding: %w", err)
+			}
+			out.ObjectProbeErrorCount++
+			continue
+		}
+
+		if !probe.Exists {
+			attachmentID := item.id
+			if err := insertReconcileFinding(ctx, tx, out.RunID, &attachmentID, findingTypeCompletedMissingObject, map[string]any{
+				"objectKey": item.objectKey,
+			}); err != nil {
+				return ReconcileOutput{}, fmt.Errorf("insert missing object finding: %w", err)
+			}
+			out.MissingObjectCount++
+			continue
+		}
+
+		expectedChecksum := normalizeChecksum(item.checksum)
+		observedChecksum := normalizeChecksum(probe.Checksum)
+		sizeMismatch := item.sizeBytes > 0 && probe.SizeBytes > 0 && item.sizeBytes != probe.SizeBytes
+		checksumMismatch := expectedChecksum != "" && observedChecksum != "" && expectedChecksum != observedChecksum
+		if sizeMismatch || checksumMismatch {
+			attachmentID := item.id
+			if err := insertReconcileFinding(ctx, tx, out.RunID, &attachmentID, findingTypeCompletedIntegrityMismatch, map[string]any{
+				"objectKey":         item.objectKey,
+				"expectedSizeBytes": item.sizeBytes,
+				"observedSizeBytes": probe.SizeBytes,
+				"expectedChecksum":  expectedChecksum,
+				"observedChecksum":  observedChecksum,
+				"sizeMismatch":      sizeMismatch,
+				"checksumMismatch":  checksumMismatch,
+			}); err != nil {
+				return ReconcileOutput{}, fmt.Errorf("insert integrity mismatch finding: %w", err)
+			}
+			out.IntegrityMismatchCount++
+		}
+	}
+
+	if s.inspector != nil {
+		inventory, err := s.inspector.List(ctx, in.Limit)
+		if err != nil {
+			if !errors.Is(err, ErrObjectListingUnsupported) {
+				if err := insertReconcileFinding(ctx, tx, out.RunID, nil, findingTypeObjectListingFailed, map[string]any{
+					"error": err.Error(),
+				}); err != nil {
+					return ReconcileOutput{}, fmt.Errorf("insert object listing failure finding: %w", err)
+				}
+				out.ObjectListingErrorCount++
+			}
+		} else {
+			for _, item := range inventory {
+				objectKey := strings.TrimSpace(item.ObjectKey)
+				if objectKey == "" {
+					continue
+				}
+
+				var exists bool
+				if err := tx.QueryRowContext(ctx, `
+					SELECT EXISTS(
+						SELECT 1
+						FROM attachments
+						WHERE object_key = $1
+					)
+				`, objectKey).Scan(&exists); err != nil {
+					return ReconcileOutput{}, fmt.Errorf("check orphan object existence for %s: %w", objectKey, err)
+				}
+				if exists {
+					continue
+				}
+
+				if err := insertReconcileFinding(ctx, tx, out.RunID, nil, findingTypeOrphanObject, map[string]any{
+					"objectKey": objectKey,
+					"sizeBytes": item.SizeBytes,
+					"checksum":  normalizeChecksum(item.Checksum),
+				}); err != nil {
+					return ReconcileOutput{}, fmt.Errorf("insert orphan object finding: %w", err)
+				}
+				out.OrphanObjectCount++
+			}
+		}
+	}
+
+	out.TotalFindingsCreated =
+		out.StaleInitiatedCount +
+			out.MissingChecksumCount +
+			out.MissingObjectCount +
+			out.OrphanObjectCount +
+			out.IntegrityMismatchCount +
+			out.ObjectProbeErrorCount +
+			out.ObjectListingErrorCount
 	out.FinishedAt = time.Now().UTC()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE attachment_reconcile_runs
@@ -511,10 +660,15 @@ func (s *Service) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileOu
 	}
 
 	if err := internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "attachment.reconcile.run", "attachment_reconcile_run", out.RunID, map[string]any{
-		"staleInitiatedCount":  out.StaleInitiatedCount,
-		"missingChecksumCount": out.MissingChecksumCount,
-		"scanLimit":            in.Limit,
-		"staleAfterSeconds":    int64(in.StaleAfter.Seconds()),
+		"staleInitiatedCount":     out.StaleInitiatedCount,
+		"missingChecksumCount":    out.MissingChecksumCount,
+		"missingObjectCount":      out.MissingObjectCount,
+		"orphanObjectCount":       out.OrphanObjectCount,
+		"integrityMismatchCount":  out.IntegrityMismatchCount,
+		"objectProbeErrorCount":   out.ObjectProbeErrorCount,
+		"objectListingErrorCount": out.ObjectListingErrorCount,
+		"scanLimit":               in.Limit,
+		"staleAfterSeconds":       int64(in.StaleAfter.Seconds()),
 	}); err != nil {
 		return ReconcileOutput{}, err
 	}
@@ -524,6 +678,38 @@ func (s *Service) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileOu
 	}
 
 	return out, nil
+}
+
+func insertReconcileFinding(ctx context.Context, tx *sql.Tx, runID string, attachmentID *string, findingType string, details any) error {
+	if details == nil {
+		details = map[string]any{}
+	}
+	blob, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("marshal reconcile finding details: %w", err)
+	}
+
+	var attachmentValue any
+	if attachmentID != nil && strings.TrimSpace(*attachmentID) != "" {
+		attachmentValue = strings.TrimSpace(*attachmentID)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO attachment_reconcile_findings (
+			run_id,
+			attachment_id,
+			finding_type,
+			details
+		) VALUES (
+			$1::uuid,
+			$2::uuid,
+			$3,
+			$4::jsonb
+		)
+	`, runID, attachmentValue, findingType, blob); err != nil {
+		return err
+	}
+	return nil
 }
 
 func experimentOwner(ctx context.Context, q interface {

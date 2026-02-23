@@ -21,6 +21,8 @@ type Config struct {
 	ObjectStorePublicBaseURL    string
 	ObjectStoreBucket           string
 	ObjectStoreSignSecret       string
+	ObjectStoreInventoryURL     string
+	ObjectStoreProbeTimeout     time.Duration
 	AttachmentUploadURLTTL      time.Duration
 	AttachmentDownloadURLTTL    time.Duration
 	DefaultReconcileStaleAfter  time.Duration
@@ -48,6 +50,8 @@ func Load() (Config, error) {
 		ObjectStorePublicBaseURL:    getEnv("OBJECT_STORE_PUBLIC_BASE_URL", "http://localhost:9000"),
 		ObjectStoreBucket:           getEnv("OBJECT_STORE_BUCKET", "elnote"),
 		ObjectStoreSignSecret:       strings.TrimSpace(os.Getenv("OBJECT_STORE_SIGN_SECRET")),
+		ObjectStoreInventoryURL:     strings.TrimSpace(os.Getenv("OBJECT_STORE_INVENTORY_URL")),
+		ObjectStoreProbeTimeout:     getDurationEnv("OBJECT_STORE_PROBE_TIMEOUT", 10*time.Second),
 		AttachmentUploadURLTTL:      getDurationEnv("ATTACHMENT_UPLOAD_URL_TTL", 15*time.Minute),
 		AttachmentDownloadURLTTL:    getDurationEnv("ATTACHMENT_DOWNLOAD_URL_TTL", 15*time.Minute),
 		DefaultReconcileStaleAfter:  getDurationEnv("RECONCILE_STALE_AFTER", 24*time.Hour),
@@ -78,6 +82,9 @@ func Load() (Config, error) {
 	}
 	if cfg.ReconcileScheduleInterval <= 0 {
 		cfg.ReconcileScheduleInterval = 24 * time.Hour
+	}
+	if cfg.ObjectStoreProbeTimeout <= 0 {
+		cfg.ObjectStoreProbeTimeout = 10 * time.Second
 	}
 
 	return cfg, nil

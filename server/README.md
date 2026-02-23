@@ -42,6 +42,8 @@ go run ./cmd/api
 - `OBJECT_STORE_PUBLIC_BASE_URL` (default `http://localhost:9000`)
 - `OBJECT_STORE_BUCKET` (default `elnote`)
 - `OBJECT_STORE_SIGN_SECRET` (default falls back to `JWT_SECRET`)
+- `OBJECT_STORE_INVENTORY_URL` (optional; JSON inventory endpoint used for orphan-object drift checks)
+- `OBJECT_STORE_PROBE_TIMEOUT` (default `10s`)
 - `ATTACHMENT_UPLOAD_URL_TTL` (default `15m`)
 - `ATTACHMENT_DOWNLOAD_URL_TTL` (default `15m`)
 - `RECONCILE_STALE_AFTER` (default `24h`)
@@ -89,3 +91,15 @@ DATABASE_URL='postgres://elnote:elnote@localhost:5432/elnote?sslmode=disable' \
 ```
 
 Artifacts are written to `docs/drills/pitr/` by default.
+
+## Automated Object-Storage Drill
+
+Run the object-storage validation drill and write timestamped evidence:
+
+```bash
+DATABASE_URL='postgres://elnote:elnote@localhost:5432/elnote?sslmode=disable' \
+OBJECT_DRILL_ADMIN_PASSWORD='<admin password>' \
+  ../scripts/run_object_storage_drill.sh
+```
+
+Artifacts are written to `docs/drills/object-storage/` by default.

@@ -13,7 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,13 +27,15 @@ import (
 )
 
 type testEnv struct {
-	t          *testing.T
-	db         *sql.DB
-	app        *app.App
-	httpSrv    *httptest.Server
-	baseURL    string
-	adminToken string
-	client     *http.Client
+	t           *testing.T
+	db          *sql.DB
+	app         *app.App
+	httpSrv     *httptest.Server
+	objectSrv   *httptest.Server
+	objectStore *fakeObjectStore
+	baseURL     string
+	adminToken  string
+	client      *http.Client
 }
 
 func setupIntegrationEnv(t *testing.T) *testEnv {
@@ -75,6 +80,9 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 		t.Fatalf("run migrations: %v", err)
 	}
 
+	objectStore := newFakeObjectStore()
+	objectSrv := httptest.NewServer(objectStore)
+
 	cfg := config.Config{
 		HTTPAddr:                    ":0",
 		DatabaseURL:                 testDSN,
@@ -85,9 +93,11 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 		MigrationsDir:               migrationsDir(t),
 		AutoMigrate:                 false,
 		RequireTLS:                  false,
-		ObjectStorePublicBaseURL:    "http://object-store.local",
+		ObjectStorePublicBaseURL:    objectSrv.URL,
 		ObjectStoreBucket:           "elnote",
 		ObjectStoreSignSecret:       "integration-sign-secret-abcdefghijklmnopqrstuvwxyz",
+		ObjectStoreInventoryURL:     objectSrv.URL + "/inventory",
+		ObjectStoreProbeTimeout:     2 * time.Second,
 		AttachmentUploadURLTTL:      15 * time.Minute,
 		AttachmentDownloadURLTTL:    15 * time.Minute,
 		DefaultReconcileStaleAfter:  24 * time.Hour,
@@ -112,21 +122,162 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 
 	httpSrv := httptest.NewServer(application)
 	env := &testEnv{
-		t:       t,
-		db:      db,
-		app:     application,
-		httpSrv: httpSrv,
-		baseURL: httpSrv.URL,
-		client:  &http.Client{Timeout: 15 * time.Second},
+		t:           t,
+		db:          db,
+		app:         application,
+		httpSrv:     httpSrv,
+		objectSrv:   objectSrv,
+		objectStore: objectStore,
+		baseURL:     httpSrv.URL,
+		client:      &http.Client{Timeout: 15 * time.Second},
 	}
 
 	t.Cleanup(func() {
 		httpSrv.Close()
+		objectSrv.Close()
 		_ = application.Close()
 	})
 
 	env.adminToken = env.login("labadmin", "CCI#3341", "integration-admin")
 	return env
+}
+
+type fakeObjectStore struct {
+	mu      sync.RWMutex
+	objects map[string]fakeObject
+}
+
+type fakeObject struct {
+	body     []byte
+	checksum string
+}
+
+func newFakeObjectStore() *fakeObjectStore {
+	return &fakeObjectStore{
+		objects: map[string]fakeObject{},
+	}
+}
+
+func (s *fakeObjectStore) putObject(objectKey string, body []byte, checksum string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.objects[strings.TrimSpace(objectKey)] = fakeObject{
+		body:     append([]byte(nil), body...),
+		checksum: strings.TrimSpace(checksum),
+	}
+}
+
+func (s *fakeObjectStore) deleteObject(objectKey string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.objects, strings.TrimSpace(objectKey))
+}
+
+func (s *fakeObjectStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/inventory" {
+		s.handleInventory(w, r)
+		return
+	}
+
+	objectKey, ok := parseObjectPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	s.mu.RLock()
+	obj, found := s.objects[objectKey]
+	s.mu.RUnlock()
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+
+	checksum := strings.TrimSpace(obj.checksum)
+	if checksum != "" {
+		w.Header().Set("ETag", `"`+checksum+`"`)
+	}
+
+	switch r.Method {
+	case http.MethodHead:
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(obj.body)))
+		w.WriteHeader(http.StatusOK)
+		return
+	case http.MethodGet:
+		rangeHeader := strings.TrimSpace(r.Header.Get("Range"))
+		if strings.HasPrefix(rangeHeader, "bytes=0-0") && len(obj.body) > 0 {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", len(obj.body)))
+			w.Header().Set("Content-Length", "1")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(obj.body[:1])
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(obj.body)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(obj.body)
+		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *fakeObjectStore) handleInventory(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	s.mu.RLock()
+	keys := make([]string, 0, len(s.objects))
+	for key := range s.objects {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	objects := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		obj := s.objects[key]
+		objects = append(objects, map[string]any{
+			"objectKey": key,
+			"sizeBytes": len(obj.body),
+			"checksum":  obj.checksum,
+		})
+		if limit > 0 && len(objects) >= limit {
+			break
+		}
+	}
+	s.mu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"objects": objects})
+}
+
+func parseObjectPath(path string) (string, bool) {
+	trimmed := strings.Trim(path, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 {
+		return "", false
+	}
+	if parts[0] != "elnote" {
+		return "", false
+	}
+
+	decoded := make([]string, 0, len(parts)-1)
+	for _, part := range parts[1:] {
+		unescaped, err := url.PathUnescape(part)
+		if err != nil {
+			return "", false
+		}
+		decoded = append(decoded, unescaped)
+	}
+
+	key := strings.TrimSpace(strings.Join(decoded, "/"))
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }
 
 func resetDatabase(ctx context.Context, db *sql.DB) error {
