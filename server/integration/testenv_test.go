@@ -82,6 +82,7 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 
 	objectStore := newFakeObjectStore()
 	objectSrv := httptest.NewServer(objectStore)
+	adminBootstrapPassword := "Integration#Admin123!"
 
 	cfg := config.Config{
 		HTTPAddr:                    ":0",
@@ -93,6 +94,8 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 		MigrationsDir:               migrationsDir(t),
 		AutoMigrate:                 false,
 		RequireTLS:                  false,
+		AllowLocalAdminReset:        true,
+		InitialAdminPassword:        adminBootstrapPassword,
 		ObjectStorePublicBaseURL:    objectSrv.URL,
 		ObjectStoreBucket:           "elnote",
 		ObjectStoreSignSecret:       "integration-sign-secret-abcdefghijklmnopqrstuvwxyz",
@@ -138,7 +141,7 @@ func setupIntegrationEnv(t *testing.T) *testEnv {
 		_ = application.Close()
 	})
 
-	env.adminToken = env.login("labadmin", "CCI#3341", "integration-admin")
+	env.adminToken = env.login("labadmin", adminBootstrapPassword, "integration-admin")
 	return env
 }
 

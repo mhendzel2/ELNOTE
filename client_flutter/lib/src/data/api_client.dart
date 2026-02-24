@@ -183,10 +183,12 @@ class ApiClient {
   Future<Map<String, dynamic>> createProtocol({
     required String title,
     required String description,
+    String? initialBody,
   }) async {
     final response = await _post('/v1/protocols', body: {
       'title': title,
       'description': description,
+      'initialBody': (initialBody ?? description).trim(),
     });
     return _decode(response);
   }
@@ -207,11 +209,12 @@ class ApiClient {
   Future<Map<String, dynamic>> publishProtocolVersion({
     required String protocolId,
     required String body,
-    required String changeLog,
+    String? changeSummary,
+    String? changeLog,
   }) async {
     final response = await _post('/v1/protocols/$protocolId/publish', body: {
       'body': body,
-      'changeLog': changeLog,
+      'changeSummary': (changeSummary ?? changeLog ?? '').trim(),
     });
     return _decode(response);
   }
@@ -233,26 +236,50 @@ class ApiClient {
   Future<Map<String, dynamic>> linkProtocol({
     required String experimentId,
     required String protocolId,
-    required int versionNum,
+    String? protocolVersionId,
+    int? versionNum,
   }) async {
-    final response = await _post('/v1/experiments/$experimentId/protocols', body: {
+    final body = <String, dynamic>{
       'protocolId': protocolId,
-      'versionNum': versionNum,
-    });
+    };
+    if (protocolVersionId != null && protocolVersionId.trim().isNotEmpty) {
+      body['protocolVersionId'] = protocolVersionId.trim();
+    } else if (versionNum != null && versionNum > 0) {
+      body['versionNum'] = versionNum;
+    }
+    final response = await _post('/v1/experiments/$experimentId/protocols', body: body);
     return _decode(response);
   }
 
   Future<Map<String, dynamic>> recordDeviation({
     required String experimentId,
-    required String protocolId,
-    required String description,
-    required String severity,
+    String? experimentEntryId,
+    String? deviationType,
+    String? rationale,
+    String? protocolId,
+    String? description,
+    String? severity,
   }) async {
-    final response = await _post('/v1/experiments/$experimentId/deviations', body: {
-      'protocolId': protocolId,
-      'description': description,
-      'severity': severity,
-    });
+    final body = <String, dynamic>{};
+    if (experimentEntryId != null && experimentEntryId.trim().isNotEmpty) {
+      body['experimentEntryId'] = experimentEntryId.trim();
+    }
+    if (deviationType != null && deviationType.trim().isNotEmpty) {
+      body['deviationType'] = deviationType.trim();
+    }
+    if (rationale != null && rationale.trim().isNotEmpty) {
+      body['rationale'] = rationale.trim();
+    }
+    if (protocolId != null && protocolId.trim().isNotEmpty) {
+      body['protocolId'] = protocolId.trim();
+    }
+    if (description != null && description.trim().isNotEmpty) {
+      body['description'] = description.trim();
+    }
+    if (severity != null && severity.trim().isNotEmpty) {
+      body['severity'] = severity.trim();
+    }
+    final response = await _post('/v1/experiments/$experimentId/deviations', body: body);
     return _decode(response);
   }
 
@@ -376,12 +403,18 @@ class ApiClient {
   Future<Map<String, dynamic>> signExperiment({
     required String experimentId,
     required String password,
-    required String meaning,
+    String? signatureType,
+    String? meaning,
   }) async {
+    var resolvedType = signatureType?.trim() ?? '';
+    if (resolvedType.isEmpty) {
+      final legacy = (meaning ?? '').toLowerCase();
+      resolvedType = legacy.contains('witness') ? 'witness' : 'author';
+    }
     final response = await _post('/v1/signatures', body: {
       'experimentId': experimentId,
       'password': password,
-      'meaning': meaning,
+      'signatureType': resolvedType,
     });
     return _decode(response);
   }

@@ -2,10 +2,11 @@ package users
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -26,13 +27,13 @@ var (
 // ---------------------------------------------------------------------------
 
 type User struct {
-	ID             string    `json:"userId"`
-	Email          string    `json:"email"`
-	Role           string    `json:"role"`
-	IsDefaultAdmin bool      `json:"isDefaultAdmin"`
-	MustChangePassword bool   `json:"mustChangePassword"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID                 string    `json:"userId"`
+	Email              string    `json:"email"`
+	Role               string    `json:"role"`
+	IsDefaultAdmin     bool      `json:"isDefaultAdmin"`
+	MustChangePassword bool      `json:"mustChangePassword"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type AccountRequest struct {
@@ -79,15 +80,25 @@ type ListAccountRequestsInput struct {
 }
 
 type ApproveAccountRequestInput struct {
-	RequestID          string
-	AdminUserID        string
-	Role               string
-	TemporaryPassword  string
+	RequestID         string
+	AdminUserID       string
+	Role              string
+	TemporaryPassword string
 }
 
 type DismissAccountRequestInput struct {
 	RequestID   string
 	AdminUserID string
+}
+
+type SeedDefaultAdminInput struct {
+	InitialPassword string
+}
+
+type SeedDefaultAdminResult struct {
+	Created   bool
+	Password  string
+	Generated bool
 }
 
 // ---------------------------------------------------------------------------
@@ -139,12 +150,13 @@ func (s *Service) CreateUser(ctx context.Context, in CreateUserInput) (*User, er
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "user.created", "user", user.ID, map[string]any{
 		"userId": user.ID,
 		"email":  user.Email,
 		"role":   user.Role,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "user.created", "user", user.ID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append user.create audit event: %w", err)
+	}
 
 	_, _ = tx.ExecContext(ctx,
 		`UPDATE account_requests
@@ -232,11 +244,12 @@ func (s *Service) UpdateUser(ctx context.Context, in UpdateUserInput) (*User, er
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "user.updated", "user", in.TargetID, map[string]any{
 		"targetUserId": in.TargetID,
 		"newRole":      in.Role,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "user.updated", "user", in.TargetID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append user.updated audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -284,8 +297,11 @@ func (s *Service) ChangePassword(ctx context.Context, in ChangePasswordInput) er
 		return fmt.Errorf("update password: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{"userId": in.UserID})
-	internaldb.AppendAuditEvent(ctx, tx, in.UserID, "user.password_changed", "user", in.UserID, payload)
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.UserID, "user.password_changed", "user", in.UserID, map[string]any{
+		"userId": in.UserID,
+	}); err != nil {
+		return fmt.Errorf("append user.password_changed audit event: %w", err)
+	}
 
 	return tx.Commit()
 }
@@ -295,65 +311,86 @@ func (s *Service) ChangePassword(ctx context.Context, in ChangePasswordInput) er
 // ---------------------------------------------------------------------------
 
 const (
-	DefaultAdminEmail    = "labadmin"
-	DefaultAdminPassword = "CCI#3341"
-	DefaultAdminRole     = "admin"
+	DefaultAdminEmail = "labadmin"
+	DefaultAdminRole  = "admin"
 )
 
 // SeedDefaultAdmin creates the default LabAdmin account if it does not already
 // exist.  It is meant to be called once at application startup.
-func (s *Service) SeedDefaultAdmin(ctx context.Context) error {
+func (s *Service) SeedDefaultAdmin(ctx context.Context, in SeedDefaultAdminInput) (SeedDefaultAdminResult, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
 		DefaultAdminEmail,
 	).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("check default admin: %w", err)
+		return SeedDefaultAdminResult{}, fmt.Errorf("check default admin: %w", err)
 	}
 	if exists {
-		return nil // already seeded
+		return SeedDefaultAdminResult{}, nil
 	}
 
-	hash, err := auth.HashPassword(DefaultAdminPassword)
+	initialPassword := strings.TrimSpace(in.InitialPassword)
+	generated := false
+	if initialPassword == "" {
+		initialPassword, err = generateBootstrapPassword()
+		if err != nil {
+			return SeedDefaultAdminResult{}, fmt.Errorf("generate bootstrap password: %w", err)
+		}
+		generated = true
+	} else if err := validateBootstrapPassword(initialPassword); err != nil {
+		return SeedDefaultAdminResult{}, fmt.Errorf("invalid initial admin password: %w", err)
+	}
+
+	hash, err := auth.HashPassword(initialPassword)
 	if err != nil {
-		return fmt.Errorf("hash default password: %w", err)
+		return SeedDefaultAdminResult{}, fmt.Errorf("hash initial admin password: %w", err)
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO users (email, password_hash, role, is_default_admin)
-		 VALUES ($1, $2, $3, TRUE)
+		`INSERT INTO users (email, password_hash, role, is_default_admin, must_change_password)
+		 VALUES ($1, $2, $3, TRUE, TRUE)
 		 ON CONFLICT (email) DO NOTHING`,
 		DefaultAdminEmail, hash, DefaultAdminRole,
 	)
 	if err != nil {
-		return fmt.Errorf("seed default admin: %w", err)
+		return SeedDefaultAdminResult{}, fmt.Errorf("seed default admin: %w", err)
 	}
-	return nil
+
+	return SeedDefaultAdminResult{
+		Created:   true,
+		Password:  initialPassword,
+		Generated: generated,
+	}, nil
 }
 
-// ResetDefaultAdmin resets the LabAdmin password back to the default value.
+// ResetDefaultAdmin rotates the LabAdmin password to a newly generated value.
 // This is an unauthenticated safety-net endpoint so the admin can recover
 // access if the password is lost.
-func (s *Service) ResetDefaultAdmin(ctx context.Context) error {
-	hash, err := auth.HashPassword(DefaultAdminPassword)
+func (s *Service) ResetDefaultAdmin(ctx context.Context) (string, error) {
+	password, err := generateBootstrapPassword()
 	if err != nil {
-		return fmt.Errorf("hash default password: %w", err)
+		return "", fmt.Errorf("generate reset admin password: %w", err)
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return "", fmt.Errorf("hash reset admin password: %w", err)
 	}
 
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET password_hash = $1, must_change_password = FALSE, updated_at = NOW()
+		`UPDATE users SET password_hash = $1, must_change_password = TRUE, updated_at = NOW()
 		 WHERE email = $2 AND is_default_admin = TRUE`,
 		hash, DefaultAdminEmail,
 	)
 	if err != nil {
-		return fmt.Errorf("reset default admin: %w", err)
+		return "", fmt.Errorf("reset default admin: %w", err)
 	}
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
-	return nil
+	return password, nil
 }
 
 func (s *Service) CreateAccountRequest(ctx context.Context, in CreateAccountRequestInput) (*AccountRequest, error) {
@@ -529,12 +566,13 @@ func (s *Service) ApproveAccountRequest(ctx context.Context, in ApproveAccountRe
 		return nil, fmt.Errorf("mark request fulfilled: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "account_request.approved", "account_request", req.ID, map[string]any{
 		"requestId":   req.ID,
 		"requestType": req.RequestType,
 		"email":       req.Email,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.AdminUserID, "account_request.approved", "account_request", req.ID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append account_request.approved audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -597,10 +635,95 @@ func (s *Service) DeleteUser(ctx context.Context, adminUserID, targetUserID stri
 		return fmt.Errorf("delete user: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, adminUserID, "user.deleted", "user", targetUserID, map[string]any{
 		"deletedUserId": targetUserID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, adminUserID, "user.deleted", "user", targetUserID, payload)
+	}); err != nil {
+		return fmt.Errorf("append user.deleted audit event: %w", err)
+	}
 
 	return tx.Commit()
+}
+
+const (
+	bootstrapPasswordLength = 20
+	passwordLowerChars      = "abcdefghijklmnopqrstuvwxyz"
+	passwordUpperChars      = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	passwordDigitChars      = "0123456789"
+	passwordSymbolChars     = "!@#$%^&*()-_=+[]{}<>?"
+)
+
+func validateBootstrapPassword(password string) error {
+	if len(password) < 12 {
+		return fmt.Errorf("%w: must be at least 12 characters", ErrInvalidInput)
+	}
+
+	var (
+		hasLower  bool
+		hasUpper  bool
+		hasDigit  bool
+		hasSymbol bool
+	)
+	for _, r := range password {
+		switch {
+		case strings.ContainsRune(passwordLowerChars, r):
+			hasLower = true
+		case strings.ContainsRune(passwordUpperChars, r):
+			hasUpper = true
+		case strings.ContainsRune(passwordDigitChars, r):
+			hasDigit = true
+		case strings.ContainsRune(passwordSymbolChars, r):
+			hasSymbol = true
+		}
+	}
+
+	if !hasLower || !hasUpper || !hasDigit || !hasSymbol {
+		return fmt.Errorf("%w: must include uppercase, lowercase, number, and symbol", ErrInvalidInput)
+	}
+	return nil
+}
+
+func generateBootstrapPassword() (string, error) {
+	requiredSets := []string{
+		passwordLowerChars,
+		passwordUpperChars,
+		passwordDigitChars,
+		passwordSymbolChars,
+	}
+	allChars := strings.Join(requiredSets, "")
+
+	password := make([]byte, bootstrapPasswordLength)
+	for i, charset := range requiredSets {
+		ch, err := randomChar(charset)
+		if err != nil {
+			return "", err
+		}
+		password[i] = ch
+	}
+
+	for i := len(requiredSets); i < len(password); i++ {
+		ch, err := randomChar(allChars)
+		if err != nil {
+			return "", err
+		}
+		password[i] = ch
+	}
+
+	for i := len(password) - 1; i > 0; i-- {
+		swapIdxBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("generate random shuffle index: %w", err)
+		}
+		j := int(swapIdxBig.Int64())
+		password[i], password[j] = password[j], password[i]
+	}
+
+	return string(password), nil
+}
+
+func randomChar(charset string) (byte, error) {
+	idxBig, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+	if err != nil {
+		return 0, fmt.Errorf("generate random index: %w", err)
+	}
+	return charset[int(idxBig.Int64())], nil
 }

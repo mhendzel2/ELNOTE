@@ -317,6 +317,7 @@ class SyncService {
     await api.createProtocol(
       title: payload['title'] as String,
       description: payload['description'] as String? ?? '',
+      initialBody: payload['initialBody'] as String? ?? payload['description'] as String? ?? '',
     );
     await db.markOutboxDone(outboxId);
   }
@@ -325,7 +326,7 @@ class SyncService {
     await api.publishProtocolVersion(
       protocolId: payload['protocolId'] as String,
       body: payload['body'] as String,
-      changeLog: payload['changeLog'] as String? ?? '',
+      changeSummary: payload['changeSummary'] as String? ?? payload['changeLog'] as String? ?? '',
     );
     await db.markOutboxDone(outboxId);
   }
@@ -338,7 +339,8 @@ class SyncService {
     final serverExperimentId = payload['experimentServerId'] as String;
     await api.signExperiment(
       experimentId: serverExperimentId,
-      meaning: payload['meaning'] as String? ?? 'authored',
+      signatureType: payload['signatureType'] as String?,
+      meaning: payload['meaning'] as String?,
       password: payload['password'] as String,
     );
     await _hydrateExperiment(serverExperimentId);
@@ -367,9 +369,12 @@ class SyncService {
     final serverExperimentId = payload['experimentServerId'] as String;
     await api.recordDeviation(
       experimentId: serverExperimentId,
-      protocolId: payload['protocolId'] as String,
-      description: payload['description'] as String,
-      severity: payload['severity'] as String? ?? 'minor',
+      experimentEntryId: payload['experimentEntryId'] as String?,
+      deviationType: payload['deviationType'] as String?,
+      rationale: payload['rationale'] as String?,
+      protocolId: payload['protocolId'] as String?,
+      description: payload['description'] as String?,
+      severity: payload['severity'] as String?,
     );
     await _hydrateExperiment(serverExperimentId);
     await db.markOutboxDone(outboxId);

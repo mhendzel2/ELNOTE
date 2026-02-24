@@ -1,5 +1,5 @@
 param(
-  [string]$HostIp = "0.0.0.0",
+  [string]$HostIp = "auto-lan",
   [int]$Port = 8090,
   [switch]$Rebuild
 )
@@ -48,16 +48,29 @@ if (-not (Test-Path $sqfliteWorkerSource) -or -not (Test-Path $sqfliteWasmSource
 Copy-Item -Path $sqfliteWorkerSource -Destination (Join-Path $buildWebPath "sqflite_sw.js") -Force
 Copy-Item -Path $sqfliteWasmSource -Destination (Join-Path $buildWebPath "sqlite3.wasm") -Force
 
+$lanIps = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPAddress -match '^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.' } |
+  Select-Object -ExpandProperty IPAddress -Unique)
+
+if ($HostIp -eq "auto-lan") {
+  if ($lanIps.Count -gt 0) {
+    $HostIp = $lanIps[0]
+  }
+  else {
+    $HostIp = "127.0.0.1"
+  }
+}
+
 if ($HostIp -eq "0.0.0.0") {
   Write-Host "Serving tablet web GUI on all interfaces (0.0.0.0:$Port)."
   Write-Host "Open from this PC: http://localhost:$Port"
-  $lanIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Where-Object { $_.IPAddress -match '^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.' } |
-    Select-Object -ExpandProperty IPAddress -Unique
-
   foreach ($lanIp in $lanIps) {
     Write-Host "Open from tablet: http://$lanIp`:$Port"
   }
+}
+elseif ($HostIp -eq "127.0.0.1") {
+  Write-Host "Serving tablet web GUI on localhost only (127.0.0.1:$Port)."
+  Write-Host "Open from this PC: http://localhost:$Port"
 }
 else {
   Write-Host "Serving tablet web GUI on http://$HostIp`:$Port ..."

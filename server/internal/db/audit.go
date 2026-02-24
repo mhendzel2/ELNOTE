@@ -15,6 +15,8 @@ type AuditStore interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+const auditChainAdvisoryLockKey int64 = 8_204_202_601
+
 func AppendAuditEvent(
 	ctx context.Context,
 	store AuditStore,
@@ -24,6 +26,37 @@ func AppendAuditEvent(
 	entityID string,
 	payload any,
 ) error {
+	if db, ok := store.(*sql.DB); ok {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin standalone audit tx: %w", err)
+		}
+		defer tx.Rollback()
+
+		if err := appendAuditEvent(ctx, tx, actorUserID, eventType, entityType, entityID, payload); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit standalone audit tx: %w", err)
+		}
+		return nil
+	}
+	return appendAuditEvent(ctx, store, actorUserID, eventType, entityType, entityID, payload)
+}
+
+func appendAuditEvent(
+	ctx context.Context,
+	store AuditStore,
+	actorUserID string,
+	eventType string,
+	entityType string,
+	entityID string,
+	payload any,
+) error {
+	if _, err := store.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, auditChainAdvisoryLockKey); err != nil {
+		return fmt.Errorf("acquire audit chain lock: %w", err)
+	}
+
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal audit payload: %w", err)

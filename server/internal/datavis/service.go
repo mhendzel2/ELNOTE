@@ -27,26 +27,26 @@ var (
 // ---------------------------------------------------------------------------
 
 type DataExtract struct {
-	ID            string    `json:"dataExtractId"`
-	AttachmentID  string    `json:"attachmentId"`
-	ExperimentID  string    `json:"experimentId"`
-	ColumnHeaders []string  `json:"columnHeaders"`
-	RowCount      int       `json:"rowCount"`
+	ID            string     `json:"dataExtractId"`
+	AttachmentID  string     `json:"attachmentId"`
+	ExperimentID  string     `json:"experimentId"`
+	ColumnHeaders []string   `json:"columnHeaders"`
+	RowCount      int        `json:"rowCount"`
 	SampleRows    [][]string `json:"sampleRows"`
-	ParsedAt      time.Time `json:"parsedAt"`
+	ParsedAt      time.Time  `json:"parsedAt"`
 }
 
 type ChartConfig struct {
-	ID            string            `json:"chartConfigId"`
-	ExperimentID  string            `json:"experimentId"`
-	DataExtractID string            `json:"dataExtractId"`
-	CreatorUserID string            `json:"creatorUserId"`
-	ChartType     string            `json:"chartType"`
-	Title         string            `json:"title"`
-	XColumn       string            `json:"xColumn"`
-	YColumns      []string          `json:"yColumns"`
-	Options       map[string]any    `json:"options"`
-	CreatedAt     time.Time         `json:"createdAt"`
+	ID            string         `json:"chartConfigId"`
+	ExperimentID  string         `json:"experimentId"`
+	DataExtractID string         `json:"dataExtractId"`
+	CreatorUserID string         `json:"creatorUserId"`
+	ChartType     string         `json:"chartType"`
+	Title         string         `json:"title"`
+	XColumn       string         `json:"xColumn"`
+	YColumns      []string       `json:"yColumns"`
+	Options       map[string]any `json:"options"`
+	CreatedAt     time.Time      `json:"createdAt"`
 }
 
 type ParseCSVInput struct {
@@ -153,11 +153,12 @@ func (s *Service) ParseCSV(ctx context.Context, in ParseCSVInput) (*DataExtract,
 	extract.ColumnHeaders = headers
 	extract.SampleRows = sampleRows
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "data.extract_created", "attachment", in.AttachmentID, map[string]any{
 		"dataExtractId": extract.ID,
 		"attachmentId":  in.AttachmentID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "data.extract_created", "attachment", in.AttachmentID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append data.extract_created audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -274,14 +275,16 @@ func (s *Service) CreateChartConfig(ctx context.Context, in CreateChartInput) (*
 		return nil, fmt.Errorf("insert chart config: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"chartConfigId": chartID,
 		"chartType":     in.ChartType,
 		"experimentId":  in.ExperimentID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.CreatorUserID, "chart.created", "experiment", in.ExperimentID, payload)
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.CreatorUserID, "chart.created", "experiment", in.ExperimentID, payload); err != nil {
+		return nil, fmt.Errorf("append chart.created audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   expOwner,
 		ActorUserID:   in.CreatorUserID,
 		DeviceID:      in.DeviceID,
@@ -289,7 +292,9 @@ func (s *Service) CreateChartConfig(ctx context.Context, in CreateChartInput) (*
 		AggregateType: "experiment",
 		AggregateID:   in.ExperimentID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append chart.created sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)

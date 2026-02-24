@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -141,15 +140,17 @@ func (s *Service) Sign(ctx context.Context, in SignInput) (*SignOutput, error) {
 		return nil, fmt.Errorf("insert signature: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"signatureId":   sigID,
 		"signatureType": in.SignatureType,
 		"contentHash":   contentHash,
 		"experimentId":  in.ExperimentID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.SignerUserID, "experiment.signed", "experiment", in.ExperimentID, payload)
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.SignerUserID, "experiment.signed", "experiment", in.ExperimentID, payload); err != nil {
+		return nil, fmt.Errorf("append experiment.signed audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   expOwner,
 		ActorUserID:   in.SignerUserID,
 		DeviceID:      in.DeviceID,
@@ -157,7 +158,9 @@ func (s *Service) Sign(ctx context.Context, in SignInput) (*SignOutput, error) {
 		AggregateType: "experiment",
 		AggregateID:   in.ExperimentID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append experiment.signed sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)

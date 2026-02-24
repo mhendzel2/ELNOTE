@@ -40,6 +40,7 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
   Future<void> _createProtocol() async {
     final titleCtl = TextEditingController();
     final descCtl = TextEditingController();
+    final bodyCtl = TextEditingController();
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -53,6 +54,8 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
               TextField(controller: titleCtl, decoration: const InputDecoration(labelText: 'Title')),
               const SizedBox(height: 12),
               TextField(controller: descCtl, maxLines: 4, decoration: const InputDecoration(labelText: 'Description')),
+              const SizedBox(height: 12),
+              TextField(controller: bodyCtl, maxLines: 8, decoration: const InputDecoration(labelText: 'Initial Body')),
             ],
           ),
         ),
@@ -63,12 +66,13 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
       ),
     );
 
-    if (confirmed != true || titleCtl.text.trim().isEmpty) return;
+    if (confirmed != true || titleCtl.text.trim().isEmpty || bodyCtl.text.trim().isEmpty) return;
 
     try {
       await widget.sync.api.createProtocol(
         title: titleCtl.text.trim(),
         description: descCtl.text.trim(),
+        initialBody: bodyCtl.text.trim(),
       );
       await _refresh();
     } on ApiException catch (e) {
@@ -194,7 +198,7 @@ class _ProtocolDetailScreenState extends State<_ProtocolDetailScreen> {
       await widget.api.publishProtocolVersion(
         protocolId: widget.protocolId,
         body: bodyCtl.text.trim(),
-        changeLog: changeLogCtl.text.trim(),
+        changeSummary: changeLogCtl.text.trim(),
       );
       await _load();
     } on ApiException catch (e) {
@@ -225,7 +229,6 @@ class _ProtocolDetailScreenState extends State<_ProtocolDetailScreen> {
           PopupMenuButton<String>(
             onSelected: _changeStatus,
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'draft', child: Text('Set Draft')),
               PopupMenuItem(value: 'published', child: Text('Set Published')),
               PopupMenuItem(value: 'archived', child: Text('Set Archived')),
             ],
@@ -273,7 +276,7 @@ class _ProtocolDetailScreenState extends State<_ProtocolDetailScreen> {
                   return Card(
                     child: ExpansionTile(
                       title: Text('v${ver['versionNumber'] ?? '?'}'),
-                      subtitle: Text(ver['changeLog'] as String? ?? ''),
+                      subtitle: Text((ver['changeSummary'] ?? ver['changeLog'] ?? '').toString()),
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(12),

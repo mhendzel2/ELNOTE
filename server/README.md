@@ -5,28 +5,17 @@ Go API service for immutable experiment records.
 ## Quick Start
 
 1. Start Postgres (example in `../infra/docker-compose.yml`).
-2. Create password hashes:
-
-```bash
-go run ./cmd/hashpass -password 'owner-password'
-go run ./cmd/hashpass -password 'admin-password'
-```
-
-3. Insert users (example):
-
-```sql
-INSERT INTO users (email, password_hash, role)
-VALUES
-  ('owner@example.com', '<owner hash>', 'owner'),
-  ('admin@example.com', '<admin hash>', 'admin');
-```
-
-4. Export environment variables.
-5. Run the service from this directory:
+2. Export environment variables (copy from `.env.example`).
+3. Run the service from this directory:
 
 ```bash
 go run ./cmd/api
 ```
+
+On first startup, the server seeds `labadmin` automatically.
+- If `INITIAL_ADMIN_PASSWORD` is set, that password is used.
+- If unset, the server generates a bootstrap password and prints it once in logs.
+- Write this password down immediately. Outside local-dev reset mode, lost admin credentials cannot be recovered.
 
 ## Environment Variables
 
@@ -39,6 +28,8 @@ go run ./cmd/api
 - `MIGRATIONS_DIR` (default `./migrations`)
 - `AUTO_MIGRATE` (default `true`)
 - `REQUIRE_TLS` (default `false`; when `true`, all routes except `/healthz` require HTTPS or `X-Forwarded-Proto: https`)
+- `INITIAL_ADMIN_PASSWORD` (optional; used only if `labadmin` does not already exist)
+- `ALLOW_LOCAL_ADMIN_RESET` (default `false`; local-dev-only password reset endpoint from localhost)
 - `OBJECT_STORE_PUBLIC_BASE_URL` (default `http://localhost:9000`)
 - `OBJECT_STORE_BUCKET` (default `elnote`)
 - `OBJECT_STORE_SIGN_SECRET` (default falls back to `JWT_SECRET`)

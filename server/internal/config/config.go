@@ -18,6 +18,8 @@ type Config struct {
 	MigrationsDir               string
 	AutoMigrate                 bool
 	RequireTLS                  bool
+	AllowLocalAdminReset        bool
+	InitialAdminPassword        string
 	ObjectStorePublicBaseURL    string
 	ObjectStoreBucket           string
 	ObjectStoreSignSecret       string
@@ -52,6 +54,8 @@ func Load() (Config, error) {
 		MigrationsDir:               getEnv("MIGRATIONS_DIR", "./migrations"),
 		AutoMigrate:                 getBoolEnv("AUTO_MIGRATE", true),
 		RequireTLS:                  getBoolEnv("REQUIRE_TLS", false),
+		AllowLocalAdminReset:        getBoolEnv("ALLOW_LOCAL_ADMIN_RESET", false),
+		InitialAdminPassword:        strings.TrimSpace(os.Getenv("INITIAL_ADMIN_PASSWORD")),
 		ObjectStorePublicBaseURL:    getEnv("OBJECT_STORE_PUBLIC_BASE_URL", "http://localhost:9000"),
 		ObjectStoreBucket:           getEnv("OBJECT_STORE_BUCKET", "elnote"),
 		ObjectStoreSignSecret:       strings.TrimSpace(os.Getenv("OBJECT_STORE_SIGN_SECRET")),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/api_client.dart';
 import '../data/sync_service.dart';
@@ -180,8 +181,8 @@ class _UsersScreenState extends State<UsersScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Reset LabAdmin'),
         content: const Text(
-          'This will reset the LabAdmin password to the default value (CCI#3341).\n\n'
-          'Use this if the LabAdmin password has been lost.',
+          'This local-development action rotates LabAdmin to a newly generated password.\n\n'
+          'You must write down the returned password immediately.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(_, false), child: const Text('Cancel')),
@@ -193,10 +194,44 @@ class _UsersScreenState extends State<UsersScreen> {
     if (confirmed != true) return;
 
     try {
-      await widget.sync.api.resetLabAdmin();
+      final resp = await widget.sync.api.resetLabAdmin();
+      final temporaryPassword = (resp['temporaryPassword'] as String?)?.trim() ?? '';
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('LabAdmin password reset to default')),
+      if (temporaryPassword.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('LabAdmin password reset')),
+        );
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Write Down Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Store this password now. Without it, administrative access may be lost.'),
+              const SizedBox(height: 12),
+              SelectableText(temporaryPassword, style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: temporaryPassword));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Password copied')),
+                  );
+                }
+              },
+              child: const Text('Copy'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          ],
+        ),
       );
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -279,7 +314,7 @@ class _UsersScreenState extends State<UsersScreen> {
           FloatingActionButton.small(
             heroTag: 'reset',
             onPressed: _resetLabAdmin,
-            tooltip: 'Reset LabAdmin to default password',
+            tooltip: 'Reset LabAdmin password (local dev)',
             child: const Icon(Icons.restart_alt),
           ),
           const SizedBox(height: 12),

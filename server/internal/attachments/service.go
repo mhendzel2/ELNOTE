@@ -360,21 +360,22 @@ func (s *Service) ListByExperiment(ctx context.Context, experimentID, viewerUser
 		return nil, ErrInvalidInput
 	}
 
-	// Check the viewer has access (owner or admin)
-	var ownerID string
+	// Check the viewer has access (owner or admin on completed experiments only)
+	var ownerID, experimentStatus string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT owner_user_id::text FROM experiments WHERE id = $1::uuid`, experimentID,
-	).Scan(&ownerID)
+		`SELECT owner_user_id::text, status FROM experiments WHERE id = $1::uuid`, experimentID,
+	).Scan(&ownerID, &experimentStatus)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("check experiment access: %w", err)
 	}
-	if ownerID != viewerUserID && viewerRole != "admin" {
-		return nil, ErrForbidden
+	if ownerID != viewerUserID {
+		if viewerRole != "admin" || experimentStatus != "completed" {
+			return nil, ErrForbidden
+		}
 	}
-
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id::text, experiment_id::text, object_key, size_bytes, mime_type, status, created_at, completed_at
 		FROM attachments

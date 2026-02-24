@@ -183,6 +183,34 @@ func TestMandatoryAcceptanceSuite(t *testing.T) {
 		}
 	})
 
+	t.Run("SignatureVerifyRoute", func(t *testing.T) {
+		exp := env.createExperiment(ownerATokenDeviceA, "Signature verify", "sign-body")
+		experimentID := getString(t, exp, "experimentId")
+
+		status, _, _, completeResp := env.doJSON(http.MethodPost, "/v1/experiments/"+experimentID+"/complete", ownerATokenDeviceA, map[string]any{})
+		if status != http.StatusOK {
+			t.Fatalf("owner complete experiment failed: status=%d body=%v", status, completeResp)
+		}
+
+		status, _, _, signResp := env.doJSON(http.MethodPost, "/v1/signatures", ownerATokenDeviceA, map[string]any{
+			"experimentId":  experimentID,
+			"password":      ownerPassword,
+			"signatureType": "author",
+		})
+		if status != http.StatusCreated {
+			t.Fatalf("author signature failed: status=%d body=%v", status, signResp)
+		}
+
+		status, _, _, verifyResp := env.doJSON(http.MethodGet, "/v1/experiments/"+experimentID+"/signatures/verify", ownerATokenDeviceA, nil)
+		if status != http.StatusOK {
+			t.Fatalf("signature verify route failed: status=%d body=%v", status, verifyResp)
+		}
+		verify := asMap(t, verifyResp)
+		if !getBool(t, verify, "integrityValid") {
+			t.Fatalf("expected signature verification integrityValid=true, got %v", verify)
+		}
+	})
+
 	t.Run("OwnerOnlyWrite", func(t *testing.T) {
 		exp := env.createExperiment(ownerATokenDeviceA, "Owner-only", "owner-a-original")
 		experimentID := getString(t, exp, "experimentId")

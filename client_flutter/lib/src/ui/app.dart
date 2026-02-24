@@ -1189,8 +1189,7 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
     if (experiment?.serverId == null) return;
 
     final passwordCtl = TextEditingController();
-    final meaningCtl = TextEditingController(text: 'authored');
-    String role = 'author';
+    String signatureType = 'author';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1212,22 +1211,15 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButton<String>(
-                  value: role,
+                  value: signatureType,
                   isExpanded: true,
                   items: const [
                     DropdownMenuItem(value: 'author', child: Text('Author')),
-                    DropdownMenuItem(value: 'reviewer', child: Text('Reviewer')),
                     DropdownMenuItem(value: 'witness', child: Text('Witness')),
-                    DropdownMenuItem(value: 'approver', child: Text('Approver')),
                   ],
                   onChanged: (v) {
-                    if (v != null) setDialogState(() => role = v);
+                    if (v != null) setDialogState(() => signatureType = v);
                   },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: meaningCtl,
-                  decoration: const InputDecoration(labelText: 'Meaning (e.g. authored, reviewed, approved)'),
                 ),
               ],
             ),
@@ -1244,7 +1236,7 @@ class _ExperimentDetailScreenState extends State<_ExperimentDetailScreen> {
     try {
       await widget.sync.api.signExperiment(
         experimentId: experiment!.serverId!,
-        meaning: meaningCtl.text.trim(),
+        signatureType: signatureType,
         password: passwordCtl.text,
       );
       await widget.sync.syncNow();

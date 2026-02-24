@@ -2,12 +2,14 @@ param(
   [string]$DatabaseUrl = "postgres://elnote:elnote@localhost:5432/elnote?sslmode=disable",
   [string]$JwtSecret = "dev-secret-dev-secret-dev-secret-123",
   [string]$ApiAddr = ":8080",
+  [string]$InitialAdminPassword = "",
+  [switch]$AllowLocalAdminReset = $true,
   [string]$SmtpHost = "smtp.gmail.com",
   [int]$SmtpPort = 587,
   [string]$SmtpUsername = "mhendzellab",
   [string]$SmtpPassword = "",
   [string]$SmtpFrom = "mhendzellab@gmail.com",
-  [string]$HostIp = "0.0.0.0",
+  [string]$HostIp = "auto-lan",
   [int]$WebPort = 8090,
   [switch]$RebuildWeb
 )
@@ -28,6 +30,8 @@ if (-not (Test-Path $webScript)) {
   exit 1
 }
 
+$allowResetArg = "-AllowLocalAdminReset:$AllowLocalAdminReset"
+
 $apiArgs = @(
   "-NoProfile",
   "-ExecutionPolicy", "Bypass",
@@ -35,6 +39,8 @@ $apiArgs = @(
   "-DatabaseUrl", $DatabaseUrl,
   "-JwtSecret", $JwtSecret,
   "-HttpAddr", $ApiAddr,
+  "-InitialAdminPassword", $InitialAdminPassword,
+  $allowResetArg,
   "-SmtpHost", $SmtpHost,
   "-SmtpPort", $SmtpPort,
   "-SmtpUsername", $SmtpUsername,
@@ -61,6 +67,7 @@ $webProc = Start-Process -FilePath "powershell" -ArgumentList $webArgs -PassThru
 
 Write-Host "API PID: $($apiProc.Id)"
 Write-Host "WEB PID: $($webProc.Id)"
+Write-Host "If LabAdmin is seeded on this startup, copy the bootstrap password from the API window and store it."
 Write-Host "Press Ctrl+C to stop both."
 
 Start-Sleep -Seconds 2
@@ -76,9 +83,9 @@ if (-not $localWebReachable) {
   Write-Warning "Web host port $WebPort is not reachable on localhost. Tablet UI may not load."
 }
 
-$lanIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+$lanIps = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
   Where-Object { $_.IPAddress -match '^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.' } |
-  Select-Object -ExpandProperty IPAddress -Unique
+  Select-Object -ExpandProperty IPAddress -Unique)
 
 foreach ($lanIp in $lanIps) {
   $apiLanReachable = Test-NetConnection -ComputerName $lanIp -Port 8080 -InformationLevel Quiet

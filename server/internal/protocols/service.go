@@ -3,7 +3,6 @@ package protocols
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -92,11 +91,12 @@ type PublishVersionOutput struct {
 }
 
 type LinkProtocolInput struct {
-	ExperimentID      string
-	ProtocolID        string
-	ProtocolVersionID string
-	ActorUserID       string
-	DeviceID          string
+	ExperimentID          string
+	ProtocolID            string
+	ProtocolVersionID     string
+	ProtocolVersionNumber int
+	ActorUserID           string
+	DeviceID              string
 }
 
 type RecordDeviationInput struct {
@@ -163,11 +163,12 @@ func (s *Service) CreateProtocol(ctx context.Context, in CreateProtocolInput) (*
 		return nil, fmt.Errorf("insert version: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "protocol.created", "protocol", protocolID, map[string]any{
 		"protocolId": protocolID,
 		"title":      in.Title,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "protocol.created", "protocol", protocolID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append protocol.created audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -245,11 +246,12 @@ func (s *Service) PublishVersion(ctx context.Context, in PublishVersionInput) (*
 		}
 	}
 
-	payload, _ := json.Marshal(map[string]any{
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.AuthorUserID, "protocol.version_published", "protocol", in.ProtocolID, map[string]any{
 		"protocolId":    in.ProtocolID,
 		"versionNumber": nextVersion,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.AuthorUserID, "protocol.version_published", "protocol", in.ProtocolID, payload)
+	}); err != nil {
+		return nil, fmt.Errorf("append protocol.version_published audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -382,8 +384,12 @@ func (s *Service) UpdateStatus(ctx context.Context, protocolID, ownerUserID, new
 		return fmt.Errorf("update status: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{"protocolId": protocolID, "status": newStatus})
-	internaldb.AppendAuditEvent(ctx, tx, ownerUserID, "protocol.status_changed", "protocol", protocolID, payload)
+	if err := internaldb.AppendAuditEvent(ctx, tx, ownerUserID, "protocol.status_changed", "protocol", protocolID, map[string]any{
+		"protocolId": protocolID,
+		"status":     newStatus,
+	}); err != nil {
+		return fmt.Errorf("append protocol.status_changed audit event: %w", err)
+	}
 
 	return tx.Commit()
 }
@@ -394,6 +400,38 @@ func (s *Service) LinkToExperiment(ctx context.Context, in LinkProtocolInput) (*
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
+
+	versionID := strings.TrimSpace(in.ProtocolVersionID)
+	switch {
+	case versionID != "":
+		var protocolIDForVersion string
+		err = tx.QueryRowContext(ctx,
+			`SELECT protocol_id::text FROM protocol_versions WHERE id = $1::uuid`,
+			versionID,
+		).Scan(&protocolIDForVersion)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, fmt.Errorf("query protocol version: %w", err)
+		}
+		if protocolIDForVersion != in.ProtocolID {
+			return nil, fmt.Errorf("%w: protocolVersionId does not match protocolId", ErrInvalidInput)
+		}
+	case in.ProtocolVersionNumber > 0:
+		err = tx.QueryRowContext(ctx,
+			`SELECT id::text FROM protocol_versions WHERE protocol_id = $1::uuid AND version_number = $2`,
+			in.ProtocolID, in.ProtocolVersionNumber,
+		).Scan(&versionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, fmt.Errorf("query protocol version by number: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("%w: protocolVersionId or versionNum is required", ErrInvalidInput)
+	}
 
 	// Verify experiment belongs to actor
 	var expOwner string
@@ -415,20 +453,22 @@ func (s *Service) LinkToExperiment(ctx context.Context, in LinkProtocolInput) (*
 		`INSERT INTO experiment_protocols (experiment_id, protocol_id, protocol_version_id)
 		 VALUES ($1, $2, $3)
 		 RETURNING id, experiment_id, protocol_id, protocol_version_id, created_at`,
-		in.ExperimentID, in.ProtocolID, in.ProtocolVersionID,
+		in.ExperimentID, in.ProtocolID, versionID,
 	).Scan(&link.ID, &link.ExperimentID, &link.ProtocolID, &link.ProtocolVersionID, &link.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert link: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"experimentId":      in.ExperimentID,
 		"protocolId":        in.ProtocolID,
-		"protocolVersionId": in.ProtocolVersionID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "experiment.protocol_linked", "experiment", in.ExperimentID, payload)
+		"protocolVersionId": versionID,
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "experiment.protocol_linked", "experiment", in.ExperimentID, payload); err != nil {
+		return nil, fmt.Errorf("append experiment.protocol_linked audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   expOwner,
 		ActorUserID:   in.ActorUserID,
 		DeviceID:      in.DeviceID,
@@ -436,7 +476,9 @@ func (s *Service) LinkToExperiment(ctx context.Context, in LinkProtocolInput) (*
 		AggregateType: "experiment",
 		AggregateID:   in.ExperimentID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append experiment.protocol_linked sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -472,26 +514,45 @@ func (s *Service) RecordDeviation(ctx context.Context, in RecordDeviationInput) 
 		return nil, ErrForbidden
 	}
 
+	experimentEntryID := strings.TrimSpace(in.ExperimentEntryID)
+	if experimentEntryID == "" {
+		err = tx.QueryRowContext(ctx, `
+			SELECT id::text
+			FROM experiment_entries
+			WHERE experiment_id = $1::uuid
+			ORDER BY created_at DESC
+			LIMIT 1
+		`, in.ExperimentID).Scan(&experimentEntryID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, fmt.Errorf("query latest experiment entry: %w", err)
+		}
+	}
+
 	var deviationID string
 	var createdAt time.Time
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO protocol_deviations (experiment_id, experiment_entry_id, deviation_type, rationale)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, created_at`,
-		in.ExperimentID, in.ExperimentEntryID, in.DeviationType, in.Rationale,
+		in.ExperimentID, experimentEntryID, in.DeviationType, in.Rationale,
 	).Scan(&deviationID, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert deviation: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"deviationId":   deviationID,
 		"deviationType": in.DeviationType,
 		"experimentId":  in.ExperimentID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "protocol.deviation_recorded", "experiment", in.ExperimentID, payload)
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "protocol.deviation_recorded", "experiment", in.ExperimentID, payload); err != nil {
+		return nil, fmt.Errorf("append protocol.deviation_recorded audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   expOwner,
 		ActorUserID:   in.ActorUserID,
 		DeviceID:      in.DeviceID,
@@ -499,7 +560,9 @@ func (s *Service) RecordDeviation(ctx context.Context, in RecordDeviationInput) 
 		AggregateType: "experiment",
 		AggregateID:   in.ExperimentID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append protocol.deviation_recorded sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -1429,4 +1492,3 @@ func defaultProtocols() []seedProtocol {
 		},
 	}
 }
-

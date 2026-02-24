@@ -1,4 +1,5 @@
-version: '3.9'
+version: "3.9"
+
 services:
   postgres:
     image: postgres:16
@@ -7,14 +8,74 @@ services:
       POSTGRES_PASSWORD: elnote
       POSTGRES_DB: elnote
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U elnote -d elnote']
+      test: ["CMD-SHELL", "pg_isready -U elnote -d elnote"]
       interval: 5s
       timeout: 3s
       retries: 20
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      set -e
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do
+        sleep 2
+      done
+      mc mb --ignore-existing local/elnote
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  api:
+    image: golang:1.24
+    working_dir: /workspace/server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ..:/workspace
+    environment:
+      DATABASE_URL: postgres://elnote:elnote@postgres:5432/elnote?sslmode=disable
+      JWT_SECRET: dev-secret-dev-secret-dev-secret-123
+      HTTP_ADDR: :8080
+      AUTO_MIGRATE: "true"
+      MIGRATIONS_DIR: /workspace/server/migrations
+      OBJECT_STORE_PUBLIC_BASE_URL: http://localhost:9000
+      OBJECT_STORE_BUCKET: elnote
+      OBJECT_STORE_SIGN_SECRET: dev-signing-secret-dev-signing-secret-123
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@elnote.local
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      ALLOW_LOCAL_ADMIN_RESET: ${ALLOW_LOCAL_ADMIN_RESET:-true}
+    command: >
+      sh -lc "go run ./cmd/api"
+    ports:
+      - "8080:8080"
+
 volumes:
   postgres_data:
+  minio_data:

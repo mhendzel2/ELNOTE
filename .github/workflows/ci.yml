@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  server-tests:
+  server-quality:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -41,5 +41,48 @@ jobs:
         with:
           go-version-file: server/go.mod
 
-      - name: Run Server Tests
-        run: go test ./... -count=1
+      - name: Check formatting
+        run: |
+          UNFORMATTED="$(gofmt -l .)"
+          if [ -n "$UNFORMATTED" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          working-directory: server
+          args: --timeout=5m --disable-all --enable=errcheck --enable=govet --enable=staticcheck --enable=ineffassign --enable=revive --enable=gosec
+
+      - name: Run Server Tests (Race)
+        run: go test -race ./... -count=1
+
+  client-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client_flutter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test

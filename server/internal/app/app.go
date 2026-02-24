@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -209,6 +210,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.routeAccountRequestScope(w, r)
 		return
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/admin/reset-default":
+		if !a.cfg.AllowLocalAdminReset {
+			http.NotFound(w, r)
+			return
+		}
 		a.handleResetDefaultAdmin(w, r)
 		return
 	case strings.HasPrefix(r.URL.Path, "/v1/users/"):
@@ -311,6 +316,15 @@ func isTLSRequest(r *http.Request) bool {
 	return false
 }
 
+func isLoopbackRequest(r *http.Request) bool {
+	host := strings.TrimSpace(r.RemoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (a *App) routeExperimentScope(w http.ResponseWriter, r *http.Request) {
 	experimentID, action, ok := parseExperimentPath(r.URL.Path)
 	if !ok {
@@ -333,9 +347,7 @@ func (a *App) routeExperimentScope(w http.ResponseWriter, r *http.Request) {
 		a.handleListComments(w, r, experimentID)
 	case r.Method == http.MethodGet && action == "signatures":
 		a.handleListSignatures(w, r, experimentID)
-	case action == "signatures" && r.Method == http.MethodGet:
-		a.handleListSignatures(w, r, experimentID)
-	case r.Method == http.MethodGet && strings.HasPrefix(action, "signatures/verify"):
+	case r.Method == http.MethodGet && action == "signatures/verify":
 		a.handleVerifySignatures(w, r, experimentID)
 	case r.Method == http.MethodPost && action == "tags":
 		a.handleAddTag(w, r, experimentID)
@@ -399,10 +411,7 @@ func parseExperimentPath(path string) (experimentID string, action string, ok bo
 	if len(parts) == 3 {
 		return experimentID, "", true
 	}
-	if len(parts) == 4 {
-		return experimentID, parts[3], true
-	}
-	return "", "", false
+	return experimentID, strings.Join(parts[3:], "/"), true
 }
 
 func (a *App) authenticate(r *http.Request) (middleware.AuthUser, error) {
@@ -1474,11 +1483,17 @@ func (a *App) handleCreateProtocol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	initialBody := strings.TrimSpace(req.InitialBody)
+	if initialBody == "" {
+		// Backward compatibility for older clients that only send title/description.
+		initialBody = strings.TrimSpace(req.Description)
+	}
+
 	resp, err := a.protocolService.CreateProtocol(r.Context(), protocols.CreateProtocolInput{
 		OwnerUserID: user.ID,
 		Title:       req.Title,
 		Description: req.Description,
-		InitialBody: req.InitialBody,
+		InitialBody: initialBody,
 	})
 	if err != nil {
 		a.writeProtocolError(w, err)
@@ -1528,8 +1543,9 @@ func (a *App) handlePublishProtocolVersion(w http.ResponseWriter, r *http.Reques
 	}
 
 	type request struct {
-		Body      string `json:"body"`
-		ChangeLog string `json:"changeLog"`
+		Body          string `json:"body"`
+		ChangeLog     string `json:"changeLog"`
+		ChangeSummary string `json:"changeSummary"`
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -1537,11 +1553,16 @@ func (a *App) handlePublishProtocolVersion(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	changeSummary := strings.TrimSpace(req.ChangeSummary)
+	if changeSummary == "" {
+		changeSummary = strings.TrimSpace(req.ChangeLog)
+	}
+
 	resp, err := a.protocolService.PublishVersion(r.Context(), protocols.PublishVersionInput{
 		ProtocolID:    protocolID,
 		AuthorUserID:  user.ID,
 		Body:          req.Body,
-		ChangeSummary: req.ChangeLog,
+		ChangeSummary: changeSummary,
 	})
 	if err != nil {
 		a.writeProtocolError(w, err)
@@ -1603,8 +1624,9 @@ func (a *App) handleLinkProtocol(w http.ResponseWriter, r *http.Request, experim
 	}
 
 	type request struct {
-		ProtocolID string `json:"protocolId"`
-		VersionNum int    `json:"versionNum"`
+		ProtocolID        string `json:"protocolId"`
+		ProtocolVersionID string `json:"protocolVersionId"`
+		VersionNum        int    `json:"versionNum"`
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -1613,11 +1635,12 @@ func (a *App) handleLinkProtocol(w http.ResponseWriter, r *http.Request, experim
 	}
 
 	resp, err := a.protocolService.LinkToExperiment(r.Context(), protocols.LinkProtocolInput{
-		ExperimentID:      experimentID,
-		ProtocolID:        req.ProtocolID,
-		ProtocolVersionID: fmt.Sprintf("%d", req.VersionNum),
-		ActorUserID:       user.ID,
-		DeviceID:          user.DeviceID,
+		ExperimentID:          experimentID,
+		ProtocolID:            req.ProtocolID,
+		ProtocolVersionID:     strings.TrimSpace(req.ProtocolVersionID),
+		ProtocolVersionNumber: req.VersionNum,
+		ActorUserID:           user.ID,
+		DeviceID:              user.DeviceID,
 	})
 	if err != nil {
 		a.writeProtocolError(w, err)
@@ -1635,9 +1658,12 @@ func (a *App) handleRecordDeviation(w http.ResponseWriter, r *http.Request, expe
 	}
 
 	type request struct {
-		ProtocolID  string `json:"protocolId"`
-		Description string `json:"description"`
-		Severity    string `json:"severity"`
+		ExperimentEntryID string `json:"experimentEntryId"`
+		DeviationType     string `json:"deviationType"`
+		Rationale         string `json:"rationale"`
+		ProtocolID        string `json:"protocolId"`  // legacy, ignored
+		Description       string `json:"description"` // legacy
+		Severity          string `json:"severity"`    // legacy
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -1645,12 +1671,22 @@ func (a *App) handleRecordDeviation(w http.ResponseWriter, r *http.Request, expe
 		return
 	}
 
+	deviationType := strings.TrimSpace(req.DeviationType)
+	if deviationType == "" {
+		deviationType = legacySeverityToDeviationType(req.Severity)
+	}
+	rationale := strings.TrimSpace(req.Rationale)
+	if rationale == "" {
+		rationale = strings.TrimSpace(req.Description)
+	}
+
 	resp, err := a.protocolService.RecordDeviation(r.Context(), protocols.RecordDeviationInput{
-		ExperimentID:  experimentID,
-		DeviationType: req.Severity,
-		Rationale:     req.Description,
-		ActorUserID:   user.ID,
-		DeviceID:      user.DeviceID,
+		ExperimentID:      experimentID,
+		ExperimentEntryID: strings.TrimSpace(req.ExperimentEntryID),
+		DeviationType:     deviationType,
+		Rationale:         rationale,
+		ActorUserID:       user.ID,
+		DeviceID:          user.DeviceID,
 	})
 	if err != nil {
 		a.writeProtocolError(w, err)
@@ -1674,6 +1710,27 @@ func (a *App) handleListDeviations(w http.ResponseWriter, r *http.Request, exper
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"deviations": resp})
+}
+
+func legacySeverityToDeviationType(severity string) string {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "planned", "unplanned", "observation":
+		return strings.ToLower(strings.TrimSpace(severity))
+	case "major", "critical":
+		return "unplanned"
+	case "minor":
+		return "observation"
+	default:
+		return ""
+	}
+}
+
+func legacyMeaningToSignatureType(meaning string) string {
+	m := strings.ToLower(strings.TrimSpace(meaning))
+	if strings.Contains(m, "witness") {
+		return "witness"
+	}
+	return "author"
 }
 
 // ---------------------------------------------------------------------------
@@ -1986,20 +2043,50 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request, userID st
 }
 
 func (a *App) handleResetDefaultAdmin(w http.ResponseWriter, r *http.Request) {
-	// This is intentionally unauthenticated so a locked-out admin can recover.
-	if err := a.userService.ResetDefaultAdmin(r.Context()); err != nil {
+	if !a.cfg.AllowLocalAdminReset {
+		http.NotFound(w, r)
+		return
+	}
+	if !isLoopbackRequest(r) {
+		httpx.WriteError(w, http.StatusForbidden, "reset is only available from localhost in local development")
+		return
+	}
+
+	newPassword, err := a.userService.ResetDefaultAdmin(r.Context())
+	if err != nil {
 		a.writeUserError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{
-		"message": "LabAdmin password has been reset to default",
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"message":           "LabAdmin password reset for local development only. Write this down now.",
+		"temporaryPassword": newPassword,
 	})
 }
 
 // SeedDefaultAdmin seeds the LabAdmin account at startup.
 func (a *App) SeedDefaultAdmin(ctx context.Context) error {
-	return a.userService.SeedDefaultAdmin(ctx)
+	result, err := a.userService.SeedDefaultAdmin(ctx, users.SeedDefaultAdminInput{
+		InitialPassword: a.cfg.InitialAdminPassword,
+	})
+	if err != nil {
+		return err
+	}
+	if !result.Created {
+		return nil
+	}
+
+	if result.Generated {
+		log.Printf("SECURITY: Seeded LabAdmin with generated bootstrap password: %s", result.Password)
+	} else {
+		log.Printf("SECURITY: Seeded LabAdmin from INITIAL_ADMIN_PASSWORD.")
+	}
+	if a.cfg.AllowLocalAdminReset {
+		log.Printf("SECURITY: Write down the LabAdmin password now. Local reset is enabled only for this dev configuration.")
+	} else {
+		log.Printf("SECURITY: Write down the LabAdmin password now. Password reset is disabled in this configuration.")
+	}
+	return nil
 }
 
 // SeedDefaultProtocols inserts the standard protocol library on first run.
@@ -2028,6 +2115,7 @@ func (a *App) handleSignExperiment(w http.ResponseWriter, r *http.Request) {
 		ExperimentID  string `json:"experimentId"`
 		Password      string `json:"password"`
 		SignatureType string `json:"signatureType"`
+		Meaning       string `json:"meaning"` // legacy
 	}
 	var req request
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -2035,10 +2123,15 @@ func (a *App) handleSignExperiment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	signatureType := strings.TrimSpace(req.SignatureType)
+	if signatureType == "" {
+		signatureType = legacyMeaningToSignatureType(req.Meaning)
+	}
+
 	resp, err := a.signatureService.Sign(r.Context(), signatures.SignInput{
 		ExperimentID:  req.ExperimentID,
 		SignerUserID:  user.ID,
-		SignatureType: req.SignatureType,
+		SignatureType: signatureType,
 		Password:      req.Password,
 		DeviceID:      user.DeviceID,
 	})

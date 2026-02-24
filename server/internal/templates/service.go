@@ -24,16 +24,16 @@ var (
 // ---------------------------------------------------------------------------
 
 type Template struct {
-	ID          string    `json:"templateId"`
-	OwnerUserID string    `json:"ownerUserId"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	BodyTemplate string   `json:"bodyTemplate"`
-	Sections    []Section `json:"sections"`
-	ProtocolID  *string   `json:"protocolId,omitempty"`
-	Tags        []string  `json:"tags"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           string    `json:"templateId"`
+	OwnerUserID  string    `json:"ownerUserId"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	BodyTemplate string    `json:"bodyTemplate"`
+	Sections     []Section `json:"sections"`
+	ProtocolID   *string   `json:"protocolId,omitempty"`
+	Tags         []string  `json:"tags"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type Section struct {
@@ -277,14 +277,16 @@ func (s *Service) CloneExperiment(ctx context.Context, in CloneExperimentInput) 
 		return nil, fmt.Errorf("insert entry: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"experimentId":       expID,
 		"sourceExperimentId": in.SourceExperimentID,
 		"originalEntryId":    entryID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "experiment.cloned", "experiment", expID, payload)
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "experiment.cloned", "experiment", expID, payload); err != nil {
+		return nil, fmt.Errorf("append experiment.cloned audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   in.OwnerUserID,
 		ActorUserID:   in.OwnerUserID,
 		DeviceID:      in.DeviceID,
@@ -292,7 +294,9 @@ func (s *Service) CloneExperiment(ctx context.Context, in CloneExperimentInput) 
 		AggregateType: "experiment",
 		AggregateID:   expID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append experiment.created sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -359,14 +363,16 @@ func (s *Service) CreateFromTemplate(ctx context.Context, in CreateFromTemplateI
 		return nil, fmt.Errorf("insert entry: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{
+	payload := map[string]any{
 		"experimentId":    expID,
 		"templateId":      in.TemplateID,
 		"originalEntryId": entryID,
-	})
-	internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "experiment.created_from_template", "experiment", expID, payload)
+	}
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.OwnerUserID, "experiment.created_from_template", "experiment", expID, payload); err != nil {
+		return nil, fmt.Errorf("append experiment.created_from_template audit event: %w", err)
+	}
 
-	s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
+	if _, err := s.sync.AppendEvent(ctx, tx, syncer.AppendEventInput{
 		OwnerUserID:   in.OwnerUserID,
 		ActorUserID:   in.OwnerUserID,
 		DeviceID:      in.DeviceID,
@@ -374,7 +380,9 @@ func (s *Service) CreateFromTemplate(ctx context.Context, in CreateFromTemplateI
 		AggregateType: "experiment",
 		AggregateID:   expID,
 		Payload:       payload,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("append experiment.created sync event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)

@@ -210,11 +210,11 @@ class ProtocolVersionRecord {
 
   factory ProtocolVersionRecord.fromJson(Map<String, dynamic> json) {
     return ProtocolVersionRecord(
-      versionNum: (json['versionNum'] as num).toInt(),
+      versionNum: ((json['versionNumber'] ?? json['versionNum']) as num).toInt(),
       authorUserId: json['authorUserId'] as String? ?? '',
       body: json['body'] as String,
-      changeLog: json['changeLog'] as String? ?? '',
-      publishedAt: DateTime.parse(json['publishedAt'] as String),
+      changeLog: json['changeSummary'] as String? ?? json['changeLog'] as String? ?? '',
+      publishedAt: DateTime.parse((json['createdAt'] ?? json['publishedAt']) as String),
     );
   }
 }
@@ -277,13 +277,14 @@ class SignatureRecord {
   final DateTime signedAt;
 
   factory SignatureRecord.fromJson(Map<String, dynamic> json) {
+    final signatureType = json['signatureType'] as String? ?? json['role'] as String? ?? 'author';
     return SignatureRecord(
       signatureId: json['signatureId'] as String,
       experimentId: json['experimentId'] as String,
       signerUserId: json['signerUserId'] as String? ?? '',
       signerEmail: json['signerEmail'] as String? ?? '',
-      role: json['role'] as String? ?? 'author',
-      meaning: json['meaning'] as String? ?? '',
+      role: signatureType,
+      meaning: json['meaning'] as String? ?? signatureType,
       contentHash: json['contentHash'] as String? ?? '',
       signedAt: DateTime.parse(json['signedAt'] as String),
     );

@@ -1015,8 +1015,8 @@ class LocalDatabase {
           'experiment_server_id': experimentServerId,
           'signer_user_id': s['signerUserId'] as String? ?? '',
           'signer_email': s['signerEmail'] as String? ?? '',
-          'role': s['role'] as String? ?? 'author',
-          'meaning': s['meaning'] as String? ?? '',
+          'role': s['signatureType'] as String? ?? s['role'] as String? ?? 'author',
+          'meaning': s['signatureType'] as String? ?? s['meaning'] as String? ?? '',
           'content_hash': s['contentHash'] as String? ?? '',
           'signed_at': s['signedAt'] != null
               ? DateTime.parse(s['signedAt'] as String).millisecondsSinceEpoch

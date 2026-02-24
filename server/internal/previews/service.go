@@ -114,7 +114,9 @@ func (s *Service) GenerateThumbnail(ctx context.Context, in GenerateInput) (*Pre
 	}
 	preview.DataBase64 = base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "attachment.preview_generated", "attachment", in.AttachmentID, nil)
+	if err := internaldb.AppendAuditEvent(ctx, tx, in.ActorUserID, "attachment.preview_generated", "attachment", in.AttachmentID, nil); err != nil {
+		return nil, fmt.Errorf("append attachment.preview_generated audit event: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
