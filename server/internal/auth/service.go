@@ -82,18 +82,44 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 		return TokenPair{}, err
 	}
 
+	deviceName := strings.TrimSpace(in.DeviceName)
 	var deviceID string
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO devices (
-			user_id,
-			device_name,
-			refresh_token_hash,
-			refresh_token_expires_at
-		) VALUES ($1, $2, $3, $4)
-		RETURNING id::text
-	`, userID, strings.TrimSpace(in.DeviceName), refreshHash, refreshExpiresAt).Scan(&deviceID)
-	if err != nil {
-		return TokenPair{}, fmt.Errorf("insert device session: %w", err)
+		SELECT id::text
+		FROM devices
+		WHERE user_id = $1 AND device_name = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, userID, deviceName).Scan(&deviceID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return TokenPair{}, fmt.Errorf("query device session: %w", err)
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO devices (
+				user_id,
+				device_name,
+				refresh_token_hash,
+				refresh_token_expires_at
+			) VALUES ($1, $2, $3, $4)
+			RETURNING id::text
+		`, userID, deviceName, refreshHash, refreshExpiresAt).Scan(&deviceID)
+		if err != nil {
+			return TokenPair{}, fmt.Errorf("insert device session: %w", err)
+		}
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE devices
+			SET refresh_token_hash = $1,
+				refresh_token_expires_at = $2,
+				revoked_at = NULL,
+				updated_at = NOW()
+			WHERE id = $3
+		`, refreshHash, refreshExpiresAt, deviceID)
+		if err != nil {
+			return TokenPair{}, fmt.Errorf("update device session: %w", err)
+		}
 	}
 
 	accessToken, accessExpiresAt, err := s.tokens.IssueAccessToken(userID, role, deviceID)

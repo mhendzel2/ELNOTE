@@ -253,6 +253,13 @@ class LocalDatabase {
         }
       },
     );
+
+    await _db!.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
   }
 
   Database get _database {
@@ -267,6 +274,31 @@ class LocalDatabase {
     final db = _db;
     _db = null;
     await db?.close();
+  }
+
+  Future<String> getOrCreateDeviceName() async {
+    final db = _database;
+    final rows = await db.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['device_name'],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      final value = rows.first['value'] as String?;
+      if (value != null && value.trim().isNotEmpty) {
+        return value;
+      }
+    }
+
+    final deviceName = 'device-${_uuid.v4()}';
+    await db.insert(
+      'app_settings',
+      {'key': 'device_name', 'value': deviceName},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return deviceName;
   }
 
   Future<String> createLocalExperimentDraft({

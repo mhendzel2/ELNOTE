@@ -55,6 +55,13 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
   void initState() {
     super.initState();
     _baseUrlController = TextEditingController(text: _defaultApiBaseUrl());
+    _initDeviceName();
+  }
+
+  Future<void> _initDeviceName() async {
+    final deviceName = await widget.db.getOrCreateDeviceName();
+    if (!mounted) return;
+    _deviceController.text = deviceName;
   }
 
   String _defaultApiBaseUrl() {
@@ -406,10 +413,6 @@ class _LoginScreen extends StatelessWidget {
                   obscureText: true,
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: deviceController,
-                  decoration: const InputDecoration(labelText: 'Device name'),
-                ),
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: loggingIn ? null : onLogin,
