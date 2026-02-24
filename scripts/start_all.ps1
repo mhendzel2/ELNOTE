@@ -63,6 +63,35 @@ Write-Host "API PID: $($apiProc.Id)"
 Write-Host "WEB PID: $($webProc.Id)"
 Write-Host "Press Ctrl+C to stop both."
 
+Start-Sleep -Seconds 2
+
+$localApiReachable = Test-NetConnection -ComputerName "localhost" -Port 8080 -InformationLevel Quiet
+$localWebReachable = Test-NetConnection -ComputerName "localhost" -Port $WebPort -InformationLevel Quiet
+
+if (-not $localApiReachable) {
+  Write-Warning "API port 8080 is not reachable on localhost. Tablet sign-in/sync will fail."
+}
+
+if (-not $localWebReachable) {
+  Write-Warning "Web host port $WebPort is not reachable on localhost. Tablet UI may not load."
+}
+
+$lanIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPAddress -match '^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.' } |
+  Select-Object -ExpandProperty IPAddress -Unique
+
+foreach ($lanIp in $lanIps) {
+  $apiLanReachable = Test-NetConnection -ComputerName $lanIp -Port 8080 -InformationLevel Quiet
+  $webLanReachable = Test-NetConnection -ComputerName $lanIp -Port $WebPort -InformationLevel Quiet
+
+  if ($apiLanReachable -and $webLanReachable) {
+    Write-Host "Tablet-ready on $lanIp : API 8080 and Web $WebPort reachable." -ForegroundColor Green
+  }
+  else {
+    Write-Warning "LAN check for $lanIp failed (API:$apiLanReachable WEB:$webLanReachable). Check firewall/router rules for ports 8080 and $WebPort."
+  }
+}
+
 try {
   while ($true) {
     Start-Sleep -Seconds 1
