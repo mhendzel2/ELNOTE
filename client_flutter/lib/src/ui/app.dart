@@ -17,6 +17,7 @@ import '../data/sync_service.dart';
 import '../models/models.dart';
 import 'data_import_screen.dart';
 import 'notifications_screen.dart';
+import 'account_requests_screen.dart';
 import 'ops_dashboard_screen.dart';
 import 'protocols_screen.dart';
 import 'reagents_screen.dart';
@@ -46,7 +47,9 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
   final _deviceController = TextEditingController(text: 'tablet-1');
 
   bool _loggingIn = false;
+  bool _requestingAuthHelp = false;
   String? _loginError;
+  String? _authHelpMessage;
 
   @override
   void initState() {
@@ -87,6 +90,7 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
     setState(() {
       _loggingIn = true;
       _loginError = null;
+      _authHelpMessage = null;
     });
 
     try {
@@ -97,6 +101,20 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
         deviceName: _deviceController.text.trim(),
       );
       api.accessToken = session.accessToken;
+
+      if (session.mustChangePassword) {
+        final changed = await _promptInitialPasswordChange(
+          api: api,
+          session: session,
+          currentPassword: _passwordController.text,
+        );
+        if (!changed) {
+          setState(() {
+            _loginError = 'Password change is required before you can continue.';
+          });
+          return;
+        }
+      }
 
       final sync = SyncService(db: widget.db, api: api);
       await sync.syncNow();
@@ -122,6 +140,161 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
       if (mounted) {
         setState(() {
           _loggingIn = false;
+        });
+      }
+    }
+  }
+
+  Future<bool> _promptInitialPasswordChange({
+    required ApiClient api,
+    required AuthSession session,
+    required String currentPassword,
+  }) async {
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change password required'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Your account was created with a temporary password. Set a new password to continue.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm new password'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Update password'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return false;
+    }
+    if (newPasswordController.text.isEmpty || newPasswordController.text != confirmPasswordController.text) {
+      setState(() {
+        _loginError = 'New password and confirmation must match.';
+      });
+      return false;
+    }
+
+    await api.changePassword(
+      userId: session.userId,
+      currentPassword: currentPassword,
+      newPassword: newPasswordController.text,
+    );
+    return true;
+  }
+
+  Future<void> _requestAccount({required String requestType}) async {
+    final usernameController = TextEditingController();
+    final emailController = TextEditingController();
+    final noteController = TextEditingController();
+    final title = requestType == 'password_recovery' ? 'Password recovery request' : 'Request account';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(labelText: 'Username'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteController,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Note (optional)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+    if (usernameController.text.trim().isEmpty || emailController.text.trim().isEmpty) {
+      setState(() {
+        _loginError = 'Username and email are required.';
+      });
+      return;
+    }
+
+    setState(() {
+      _requestingAuthHelp = true;
+      _loginError = null;
+      _authHelpMessage = null;
+    });
+
+    try {
+      final api = ApiClient(baseUrl: _baseUrlController.text.trim());
+      final response = await api.requestAccount(
+        requestType: requestType,
+        username: usernameController.text.trim(),
+        email: emailController.text.trim(),
+        note: noteController.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _authHelpMessage = response['message'] as String? ?? 'Request submitted.';
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loginError = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loginError = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _requestingAuthHelp = false;
         });
       }
     }
@@ -156,8 +329,12 @@ class _ElnoteApplicationState extends State<ElnoteApplication> {
               passwordController: _passwordController,
               deviceController: _deviceController,
               loggingIn: _loggingIn,
+              requestingAuthHelp: _requestingAuthHelp,
               loginError: _loginError,
+              authHelpMessage: _authHelpMessage,
               onLogin: _login,
+              onRequestAccount: () => _requestAccount(requestType: 'account_create'),
+              onPasswordRecovery: () => _requestAccount(requestType: 'password_recovery'),
             )
           : _WorkspaceScreen(
               db: widget.db,
@@ -175,8 +352,12 @@ class _LoginScreen extends StatelessWidget {
     required this.passwordController,
     required this.deviceController,
     required this.loggingIn,
+    required this.requestingAuthHelp,
     required this.loginError,
+    required this.authHelpMessage,
     required this.onLogin,
+    required this.onRequestAccount,
+    required this.onPasswordRecovery,
   });
 
   final TextEditingController baseUrlController;
@@ -184,8 +365,12 @@ class _LoginScreen extends StatelessWidget {
   final TextEditingController passwordController;
   final TextEditingController deviceController;
   final bool loggingIn;
+  final bool requestingAuthHelp;
   final String? loginError;
+  final String? authHelpMessage;
   final Future<void> Function() onLogin;
+  final Future<void> Function() onRequestAccount;
+  final Future<void> Function() onPasswordRecovery;
 
   @override
   Widget build(BuildContext context) {
@@ -230,6 +415,28 @@ class _LoginScreen extends StatelessWidget {
                   onPressed: loggingIn ? null : onLogin,
                   child: Text(loggingIn ? 'Signing in...' : 'Sign in'),
                 ),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: requestingAuthHelp ? null : onRequestAccount,
+                      child: const Text('Request account'),
+                    ),
+                    TextButton(
+                      onPressed: requestingAuthHelp ? null : onPasswordRecovery,
+                      child: const Text('Request password reset'),
+                    ),
+                  ],
+                ),
+                if (authHelpMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    authHelpMessage!,
+                    style: const TextStyle(color: Colors.green),
+                  ),
+                ],
                 if (loginError != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -300,6 +507,7 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
       const NavigationRailDestination(icon: Icon(Icons.inventory_2), label: Text('Reagents')),
       const NavigationRailDestination(icon: Icon(Icons.upload_file), label: Text('Data Import')),
       const NavigationRailDestination(icon: Icon(Icons.people), label: Text('Users')),
+      const NavigationRailDestination(icon: Icon(Icons.fact_check), label: Text('Approvals')),
       const NavigationRailDestination(icon: Icon(Icons.monitor_heart), label: Text('Ops')),
     ];
 
@@ -327,6 +535,9 @@ class _WorkspaceScreenState extends State<_WorkspaceScreen> {
         body = UsersScreen(sync: widget.sync);
         break;
       case 8:
+        body = AccountRequestsScreen(sync: widget.sync);
+        break;
+      case 9:
         body = OpsDashboardScreen(sync: widget.sync);
         break;
       default:

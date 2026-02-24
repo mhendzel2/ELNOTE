@@ -1,12 +1,16 @@
 class AuthSession {
   AuthSession({
     required this.baseUrl,
+    required this.userId,
+    required this.mustChangePassword,
     required this.accessToken,
     required this.refreshToken,
     required this.accessTokenExpiresAt,
   });
 
   final String baseUrl;
+  final String userId;
+  final bool mustChangePassword;
   final String accessToken;
   final String refreshToken;
   final DateTime accessTokenExpiresAt;

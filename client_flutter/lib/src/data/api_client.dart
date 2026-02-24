@@ -47,10 +47,31 @@ class ApiClient {
     final json = _decode(response);
     return AuthSession(
       baseUrl: baseUrl,
+      userId: json['userId'] as String,
+      mustChangePassword: json['mustChangePassword'] as bool? ?? false,
       accessToken: json['accessToken'] as String,
       refreshToken: json['refreshToken'] as String,
       accessTokenExpiresAt: DateTime.parse(json['accessTokenExpiresAt'] as String),
     );
+  }
+
+  Future<Map<String, dynamic>> requestAccount({
+    required String requestType,
+    required String username,
+    required String email,
+    String? note,
+  }) async {
+    final response = await _post(
+      '/v1/auth/request-account',
+      body: {
+        'requestType': requestType,
+        'username': username,
+        'email': email,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+      withAuth: false,
+    );
+    return _decode(response);
   }
 
   Future<Map<String, dynamic>> createExperiment({
@@ -314,6 +335,37 @@ class ApiClient {
 
   Future<Map<String, dynamic>> resetLabAdmin() async {
     final response = await _post('/v1/admin/reset-default');
+    return _decode(response);
+  }
+
+  Future<List<Map<String, dynamic>>> listAccountRequests({
+    String status = 'pending',
+    int limit = 100,
+  }) async {
+    final response = await _get(
+      '/v1/account-requests?status=${Uri.encodeQueryComponent(status)}&limit=$limit',
+    );
+    final json = _decode(response);
+    return (json['requests'] as List<dynamic>? ?? <dynamic>[])
+        .cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> approveAccountRequest({
+    required String requestId,
+    required String temporaryPassword,
+    String role = 'author',
+  }) async {
+    final response = await _post('/v1/account-requests/$requestId/approve', body: {
+      'role': role,
+      'temporaryPassword': temporaryPassword,
+    });
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> dismissAccountRequest({
+    required String requestId,
+  }) async {
+    final response = await _post('/v1/account-requests/$requestId/dismiss');
     return _decode(response);
   }
 

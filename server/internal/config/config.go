@@ -34,6 +34,11 @@ type Config struct {
 	SearchResultLimit           int
 	PreviewMaxSizeBytes         int64
 	NotificationRetentionDays   int
+	SMTPHost                    string
+	SMTPPort                    int
+	SMTPUsername                string
+	SMTPPassword                string
+	SMTPFrom                    string
 }
 
 func Load() (Config, error) {
@@ -63,6 +68,11 @@ func Load() (Config, error) {
 		SearchResultLimit:           getIntEnv("SEARCH_RESULT_LIMIT", 50),
 		PreviewMaxSizeBytes:         int64(getIntEnv("PREVIEW_MAX_SIZE_BYTES", 10*1024*1024)),
 		NotificationRetentionDays:   getIntEnv("NOTIFICATION_RETENTION_DAYS", 90),
+		SMTPHost:                    strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		SMTPPort:                    getIntEnv("SMTP_PORT", 587),
+		SMTPUsername:                strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		SMTPPassword:                strings.TrimSpace(os.Getenv("SMTP_PASSWORD")),
+		SMTPFrom:                    getEnv("SMTP_FROM", "no-reply@elnote.local"),
 	}
 
 	if cfg.DatabaseURL == "" {

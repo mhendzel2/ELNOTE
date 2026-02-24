@@ -121,6 +121,9 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/login":
 		a.handleLogin(w, r)
 		return
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/request-account":
+		a.handleCreateAccountRequest(w, r)
+		return
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/refresh":
 		a.handleRefresh(w, r)
 		return
@@ -198,6 +201,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/users":
 		a.handleListUsers(w, r)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/account-requests":
+		a.handleListAccountRequests(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/v1/account-requests/"):
+		a.routeAccountRequestScope(w, r)
 		return
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/admin/reset-default":
 		a.handleResetDefaultAdmin(w, r)
@@ -468,6 +477,53 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (a *App) handleCreateAccountRequest(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		RequestType string `json:"requestType"`
+		Username    string `json:"username"`
+		Email       string `json:"email"`
+		Note        string `json:"note"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	created, err := a.userService.CreateAccountRequest(r.Context(), users.CreateAccountRequestInput{
+		RequestType: req.RequestType,
+		Username:    req.Username,
+		Email:       req.Email,
+		Note:        req.Note,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	admins, err := a.userService.ListAdminUsers(r.Context())
+	if err != nil {
+		log.Printf("list admins for account request notification failed: %v", err)
+	} else {
+		title := "New account request"
+		if req.RequestType == "password_recovery" {
+			title = "Password recovery request"
+		}
+		body := fmt.Sprintf("Username: %s\nEmail: %s\nNote: %s", created.Username, created.Email, strings.TrimSpace(created.Note))
+		for _, admin := range admins {
+			if notifyErr := a.notifService.Create(r.Context(), admin.ID, "auth.account_request", title, body, "account_request", &created.ID); notifyErr != nil {
+				log.Printf("notify admin %s for account request failed: %v", admin.Email, notifyErr)
+			}
+		}
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+		"requestId": created.ID,
+		"status":    created.Status,
+		"message":   "Request submitted. It now appears in the admin approval queue.",
+	})
 }
 
 func (a *App) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -1682,6 +1738,23 @@ func (a *App) routeUserScope(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) routeAccountRequestScope(w http.ResponseWriter, r *http.Request) {
+	requestID, action, ok := parseSubResourcePath(r.URL.Path, "/v1/account-requests/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case r.Method == http.MethodPost && action == "approve":
+		a.handleApproveAccountRequest(w, r, requestID)
+	case r.Method == http.MethodPost && action == "dismiss":
+		a.handleDismissAccountRequest(w, r, requestID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
 func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	admin, ok := a.requireAdmin(r)
 	if !ok {
@@ -1711,6 +1784,16 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = a.notifService.Create(
+		r.Context(),
+		resp.ID,
+		"user.account_created",
+		"Your account is ready",
+		"Your account was created by an administrator. Sign in with your temporary password and change it immediately.",
+		"user",
+		&resp.ID,
+	)
+
 	httpx.WriteJSON(w, http.StatusCreated, resp)
 }
 
@@ -1728,6 +1811,81 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"users": resp})
+}
+
+func (a *App) handleListAccountRequests(w http.ResponseWriter, r *http.Request) {
+	_, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status == "" {
+		status = "pending"
+	}
+	limit, _ := parseIntQuery(r, "limit", 100)
+
+	resp, err := a.userService.ListAccountRequests(r.Context(), users.ListAccountRequestsInput{
+		Status: status,
+		Limit:  limit,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"requests": resp})
+}
+
+func (a *App) handleApproveAccountRequest(w http.ResponseWriter, r *http.Request, requestID string) {
+	admin, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	type request struct {
+		Role              string `json:"role"`
+		TemporaryPassword string `json:"temporaryPassword"`
+	}
+	var req request
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	updated, err := a.userService.ApproveAccountRequest(r.Context(), users.ApproveAccountRequestInput{
+		RequestID:         requestID,
+		AdminUserID:       admin.ID,
+		Role:              req.Role,
+		TemporaryPassword: req.TemporaryPassword,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, updated)
+}
+
+func (a *App) handleDismissAccountRequest(w http.ResponseWriter, r *http.Request, requestID string) {
+	admin, ok := a.requireAdmin(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusForbidden, "admin role required")
+		return
+	}
+
+	updated, err := a.userService.DismissAccountRequest(r.Context(), users.DismissAccountRequestInput{
+		RequestID:   requestID,
+		AdminUserID: admin.ID,
+	})
+	if err != nil {
+		a.writeUserError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (a *App) handleGetUser(w http.ResponseWriter, r *http.Request, userID string) {
@@ -2575,6 +2733,8 @@ func (a *App) writeUserError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, users.ErrInvalidInput):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, users.ErrConflict):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, users.ErrDuplicateEmail):
 		httpx.WriteError(w, http.StatusConflict, "email already in use")
 	default:

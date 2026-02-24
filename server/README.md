@@ -52,10 +52,22 @@ go run ./cmd/api
 - `RECONCILE_SCHEDULE_INTERVAL` (default `24h`)
 - `RECONCILE_SCHEDULE_RUN_ON_STARTUP` (default `false`)
 - `RECONCILE_SCHEDULE_ACTOR_EMAIL` (default `labadmin`)
+- `SMTP_HOST` (optional; SMTP server host for account-created emails)
+- `SMTP_PORT` (default `587`)
+- `SMTP_USERNAME` (optional)
+- `SMTP_PASSWORD` (optional)
+- `SMTP_FROM` (default `no-reply@elnote.local`)
+
+For Gmail SMTP, use:
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=587`
+- `SMTP_USERNAME=mhendzellab`
+- `SMTP_FROM=mhendzellab@gmail.com`
+- `SMTP_PASSWORD=<Google App Password>`
 
 ## Implemented API Scope
 
-1. Auth: `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`.
+1. Auth: `POST /v1/auth/login`, `POST /v1/auth/request-account`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`.
 2. Immutable experiments:
    - `POST /v1/experiments`
    - `POST /v1/experiments/{id}/addendums` (supports `baseEntryId` stale-write detection)

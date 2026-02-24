@@ -13,6 +13,7 @@ class UsersScreen extends StatefulWidget {
 
 class _UsersScreenState extends State<UsersScreen> {
   List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _pendingRequests = [];
   bool _loading = true;
 
   @override
@@ -24,14 +25,118 @@ class _UsersScreenState extends State<UsersScreen> {
   Future<void> _refresh() async {
     try {
       final users = await widget.sync.api.listUsers();
+      final requests = await widget.sync.api.listAccountRequests(status: 'pending');
       if (!mounted) return;
       setState(() {
         _users = users;
+        _pendingRequests = requests;
         _loading = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _approveRequest(Map<String, dynamic> request) async {
+    final requestId = request['requestId'] as String? ?? '';
+    final requestType = request['requestType'] as String? ?? 'account_create';
+    final email = request['email'] as String? ?? '';
+    final tempPasswordCtl = TextEditingController();
+    String role = 'author';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(requestType == 'password_recovery' ? 'Approve Password Reset' : 'Approve Account Request'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Email: $email'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tempPasswordCtl,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Temporary password'),
+                ),
+                if (requestType == 'account_create') ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: role,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: const [
+                      DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
+                      DropdownMenuItem(value: 'author', child: Text('Author')),
+                      DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                      DropdownMenuItem(value: 'owner', child: Text('Owner')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setDialogState(() => role = v);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Approve')),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || tempPasswordCtl.text.isEmpty || requestId.isEmpty) return;
+
+    try {
+      await widget.sync.api.approveAccountRequest(
+        requestId: requestId,
+        temporaryPassword: tempPasswordCtl.text,
+        role: role,
+      );
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request approved')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _dismissRequest(Map<String, dynamic> request) async {
+    final requestId = request['requestId'] as String? ?? '';
+    if (requestId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Dismiss Request'),
+        content: const Text('Dismiss this pending request?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(_, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(_, true), child: const Text('Dismiss')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await widget.sync.api.dismissAccountRequest(requestId: requestId);
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request dismissed')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
@@ -295,9 +400,62 @@ class _UsersScreenState extends State<UsersScreen> {
           ? const Center(child: Text('No users found'))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _users.length,
+              itemCount: _users.length + 1,
               itemBuilder: (context, index) {
-                final user = _users[index];
+                if (index == 0) {
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pending approvals (${_pendingRequests.length})',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          if (_pendingRequests.isEmpty)
+                            const Text('No pending account/password reset requests')
+                          else
+                            ..._pendingRequests.map((request) {
+                              final requestType = request['requestType'] as String? ?? '';
+                              final username = request['username'] as String? ?? '';
+                              final email = request['email'] as String? ?? '';
+                              final note = request['note'] as String? ?? '';
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  requestType == 'password_recovery' ? Icons.lock_reset : Icons.person_add_alt,
+                                ),
+                                title: Text('$username ($email)'),
+                                subtitle: Text(
+                                  '${requestType == 'password_recovery' ? 'Password reset request' : 'Account request'}${note.isNotEmpty ? '\n$note' : ''}',
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.check_circle, color: Colors.green),
+                                      tooltip: 'Approve',
+                                      onPressed: () => _approveRequest(request),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.cancel, color: Colors.red),
+                                      tooltip: 'Dismiss',
+                                      onPressed: () => _dismissRequest(request),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                final user = _users[index - 1];
                 final userId = user['userId'] as String? ?? '';
                 final email = user['email'] as String? ?? '';
                 final role = user['role'] as String? ?? '';

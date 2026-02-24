@@ -29,6 +29,8 @@ type LoginInput struct {
 
 type TokenPair struct {
 	TokenType             string    `json:"tokenType"`
+	UserID                string    `json:"userId"`
+	MustChangePassword    bool      `json:"mustChangePassword"`
 	AccessToken           string    `json:"accessToken"`
 	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
 	RefreshToken          string    `json:"refreshToken"`
@@ -54,11 +56,12 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	defer tx.Rollback()
 
 	var userID, passwordHash, role string
+	var mustChangePassword bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT id::text, password_hash, role
+		SELECT id::text, password_hash, role, COALESCE(must_change_password, FALSE)
 		FROM users
 		WHERE email = $1
-	`, strings.ToLower(strings.TrimSpace(in.Email))).Scan(&userID, &passwordHash, &role)
+	`, strings.ToLower(strings.TrimSpace(in.Email))).Scan(&userID, &passwordHash, &role, &mustChangePassword)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return TokenPair{}, ErrInvalidCredentials
@@ -110,6 +113,8 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 
 	return TokenPair{
 		TokenType:             "Bearer",
+		UserID:                userID,
+		MustChangePassword:    mustChangePassword,
 		AccessToken:           accessToken,
 		AccessTokenExpiresAt:  accessExpiresAt,
 		RefreshToken:          refreshToken,

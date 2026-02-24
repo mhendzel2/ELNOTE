@@ -2,6 +2,11 @@ param(
   [string]$DatabaseUrl = "postgres://elnote:elnote@localhost:5432/elnote?sslmode=disable",
   [string]$JwtSecret = "dev-secret-dev-secret-dev-secret-123",
   [string]$ApiAddr = ":8080",
+  [string]$SmtpHost = "smtp.gmail.com",
+  [int]$SmtpPort = 587,
+  [string]$SmtpUsername = "mhendzellab",
+  [string]$SmtpPassword = "",
+  [string]$SmtpFrom = "mhendzellab@gmail.com",
   [string]$HostIp = "0.0.0.0",
   [int]$WebPort = 8090,
   [switch]$RebuildWeb
@@ -29,7 +34,12 @@ $apiArgs = @(
   "-File", $apiScript,
   "-DatabaseUrl", $DatabaseUrl,
   "-JwtSecret", $JwtSecret,
-  "-HttpAddr", $ApiAddr
+  "-HttpAddr", $ApiAddr,
+  "-SmtpHost", $SmtpHost,
+  "-SmtpPort", $SmtpPort,
+  "-SmtpUsername", $SmtpUsername,
+  "-SmtpPassword", $SmtpPassword,
+  "-SmtpFrom", $SmtpFrom
 )
 
 $webArgs = @(
